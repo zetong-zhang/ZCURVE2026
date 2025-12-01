@@ -228,10 +228,8 @@ int main(int argc, char *argv[]) {
     /* classifying orfs */
     int num_putative = 0;
     for (int i = 0; i < n_orfs; i ++) {
-        orfs[i].score = scores[i];
-        if (probas[i] > 0.5 && scores[i] <= thres) {
-            orfs[i].score = thres + 0.01;
-        }
+        if (!flag || (scores[i] < thres && probas[i] > 0.5)) orfs[i].score = probas[i] - 0.5;
+        else orfs[i].score = scores[i];
         if (orfs[i].score > thres) num_putative ++;
     }
     if (!QUIET) std::cerr << "Number of Putative Genes:" << std::setw(28) << num_putative << "\n";

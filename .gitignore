@@ -1,6 +1,8 @@
 /.vscode
+zcurve*
 *.bat
 *.exe
 *.py
 *.fasta
+*.gb
 *.gff

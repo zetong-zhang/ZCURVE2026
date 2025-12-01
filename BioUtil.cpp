@@ -138,6 +138,7 @@ void bio_util::get_orfs(
         for (int phase = 0; phase < 3; phase ++) {
             int_array slocs(0), types(0);
             int ps;
+            int orf_size = orfs.size();
 
             // search for standard ORFs
             for (ps = phase; ps < length; ps += 3) {
@@ -214,6 +215,7 @@ void bio_util::get_orfs(
                             orf3.gc_frac = gc_fraction(orf3.seq, seqlen);
                             orf3.partial3 = false;
                         } else orfs.pop_back();
+                        if (has_start) orfs.erase(orfs.begin()+orf_size);
                     } else {
                         int t_start = phase;
                         int seqlen = end - t_start;
