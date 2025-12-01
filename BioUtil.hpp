@@ -50,22 +50,12 @@ namespace bio_util {
      * @param   record  scaffold record.
      * @param   starts  start codon array.
      * @param   stops   stop codon array.
+     * @param   circ    treat as circular.
      * @param   minlen  minimum length of the ORF.
      * @param   orfs    ORF array to be written.
      */
-    void  get_orfs(bio::record &record, const str_array &starts, 
-        const str_array &stops, const int minlen, bio::orf_array &orfs);
-    /**
-     * @brief   get edge ORFs in a nucleotide sequence.
-     * 
-     * @param   record  scaffold record.
-     * @param   starts  start codon array.
-     * @param   stops   stop codon array.
-     * @param   minlen  minimum length of the ORF.
-     * @param   orfs    ORF array to be written.
-     */
-    void  get_edge_orfs(bio::record &record, const str_array &starts, 
-        const str_array &stops, const int minlen, bio::orf_array &orfs);
+    void  get_orfs(bio::record &record, const str_array &starts, const str_array &stops, 
+        const int minlen, const bool circ, bio::orf_array &orfs);
     /**
      * @brief   translate a nucleotide sequence to a protein sequence.
      * 

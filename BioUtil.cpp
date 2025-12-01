@@ -91,7 +91,7 @@ char *bio_util::gene2protein(bio::orf &gene, int prolen) {
     char *protein = new char[prolen]; 
     try {
         for (int i = 0; i < prolen; i ++) {
-            if (!(gene.edge || i)) {
+            if (!(gene.partial5 || i)) {
                 protein[0] = 'M';
                 continue;
             }
@@ -107,15 +107,29 @@ char *bio_util::gene2protein(bio::orf &gene, int prolen) {
     return protein;
 }
 
+static int refine_start(int_array &start_locs, int_array &start_types) {
+    int t_start = start_locs.at(0);
+    for (int k = 0; k < start_locs.size(); k ++) {
+        int alter = start_locs.at(k);
+        if (start_types[k] == 0 && (alter-t_start)<=30) {
+            t_start = alter;
+            break;
+        }
+    }
+    return t_start;
+}
+
 void bio_util::get_orfs(
     bio::record &scaffold,
     const str_array &starts,
     const str_array &stops,
     const int minlen,
+    const bool circ,
     bio::orf_array &orfs
 ) {
     char *genome = (char *) scaffold.sequence.c_str();
     int length = (int) scaffold.sequence.size();
+    char *hostname = (char*)scaffold.name.c_str();
     for (int neg_strand = 0; neg_strand < 2; neg_strand ++) {
         if (neg_strand) {
             genome = get_complement(scaffold.sequence);
@@ -125,6 +139,7 @@ void bio_util::get_orfs(
             int_array slocs(0), types(0);
             int ps;
 
+            // search for standard ORFs
             for (ps = phase; ps < length; ps += 3) {
                 int match = match_codon(genome+ps, starts);
                 if (match > -1 && slocs.size() < 6) {
@@ -132,14 +147,7 @@ void bio_util::get_orfs(
                     types.push_back(match);
                 } else if (slocs.size() && match_codon(genome+ps, stops) > -1) {
                     int end = ps + 3;
-                    int t_start = slocs.at(0);
-                    for (int k = 0; k < types.size(); k ++) {
-                        int alter = slocs.at(k);
-                        if (types[k] == 0 && (alter-t_start)<=30) {
-                            t_start = alter;
-                            break;
-                        }
-                    }
+                    int t_start = refine_start(slocs, types);
                     int seqlen = end - t_start;
                     if (seqlen >= minlen) {
                         char *pstr = genome + t_start;
@@ -152,7 +160,7 @@ void bio_util::get_orfs(
                                 slocs.at(i) = length - slocs.at(i);
                         }
                         orfs.emplace_back(
-                            (char*)scaffold.name.c_str(), std::move(slocs), std::move(types), 
+                            hostname, std::move(slocs), std::move(types), 
                             end, t_start, seqlen, strand, pstr, gc_frac
                         );
                     }
@@ -160,18 +168,13 @@ void bio_util::get_orfs(
                 }
             }
 
-            if (slocs.size()) {
-                int end = ps; if (ps > length) end -= 3;
-                int t_start = slocs.at(0);
-                for (int k = 0; k < types.size(); k ++) {
-                    int alter = slocs.at(k);
-                    if (types[k] == 0 && (alter-t_start)<=30) {
-                        t_start = alter;
-                        break;
-                    }
-                }
+            bool partial3 = (bool) slocs.size();
+            // search for partial 3'-end ORFs
+            if (partial3) {
+                int end = ps; if (ps > length) end = length;
+                int t_start = refine_start(slocs, types);
                 int seqlen = end - t_start;
-                if (seqlen >= minlen) {
+                if (seqlen >= minlen || circ) {
                     char *pstr = genome + t_start;
                     float gc_frac = gc_fraction(pstr, seqlen);
                     char strand = neg_strand ? '-' : '+';
@@ -182,53 +185,52 @@ void bio_util::get_orfs(
                             slocs.at(i) = length - slocs.at(i);
                     }
                     orfs.emplace_back(
-                        (char*)scaffold.name.c_str(), std::move(slocs), std::move(types), 
+                        hostname, std::move(slocs), std::move(types), 
                         end, t_start, seqlen, strand, pstr, gc_frac
                     );
-                    orfs[orfs.size()-1].edge = true;
+                    orfs.at(orfs.size()-1).partial3 = true;
                 }
             }
-        }
-    }
-}
 
-void  bio_util::get_edge_orfs(
-    bio::record &scaffold,
-    const str_array &starts,
-    const str_array &stops,
-    const int minlen,
-    bio::orf_array &orfs
-) {
-    char *genome = (char *) scaffold.sequence.c_str();
-    int length = (int) scaffold.sequence.size();
-    for (int neg_strand = 0; neg_strand < 2; neg_strand ++) {
-        if (neg_strand) {
-            genome = scaffold.complement;
-            if (!genome) return;
-        }
-        for (int phase = 0; phase < 3; phase ++) {
+            // search for partial 5'-end ORFs
             bool has_start = false;
-            for (int ps = phase; ps < length; ps += 3) {
+            for (int ps = (phase + ((3 - length % 3) % 3)) % 3; ps < length; ps += 3) {
                 if (!has_start && match_codon(genome+ps, starts) > -1) {
                     has_start = true;
                     continue;
                 }
                 if (match_codon(genome+ps, stops) > -1) {
-                    int end = ps + 3, t_start = phase;
-                    int seqlen = end - t_start;
-                    if (!has_start && seqlen >= minlen) {
-                        char *pstr = genome + t_start;
-                        float gc_frac = gc_fraction(pstr, seqlen);
-                        char strand = neg_strand ? '-' : '+';
-                        if (neg_strand) {
-                            end = length - end;
-                            t_start = length - t_start;
+                    int end = ps + 3;
+                    if (circ && partial3) {
+                        bio::orf &orf3 = orfs.at(orfs.size()-1);
+                        int seqlen = orf3.len + end;
+                        if (seqlen >= minlen) {
+                            orf3.seq = new char[seqlen];
+                            std::strncpy(orf3.seq, orf3.pstr, orf3.len);
+                            std::strncpy(orf3.seq+orf3.len, genome, end);
+                            orf3.end = neg_strand ? (length - end) : end;
+                            orf3.len = seqlen;
+                            orf3.pstr = orf3.seq;
+                            orf3.gc_frac = gc_fraction(orf3.seq, seqlen);
+                            orf3.partial3 = false;
+                        } else orfs.pop_back();
+                    } else {
+                        int t_start = phase;
+                        int seqlen = end - t_start;
+                        if (!has_start && seqlen >= minlen) {
+                            char *pstr = genome + t_start;
+                            float gc_frac = gc_fraction(pstr, seqlen);
+                            char strand = neg_strand ? '-' : '+';
+                            if (neg_strand) {
+                                end = length - end;
+                                t_start = length - t_start;
+                            }
+                            orfs.emplace_back(
+                                (char*)scaffold.name.c_str(), int_array(0), int_array(0), 
+                                end, t_start, seqlen, strand, pstr, gc_frac
+                            );
+                            orfs.at(orfs.size()-1).partial5 = true;
                         }
-                        orfs.emplace_back(
-                            (char*)scaffold.name.c_str(), int_array(0), int_array(0), 
-                            end, t_start, seqlen, strand, pstr, gc_frac
-                        );
-                        orfs[orfs.size()-1].edge = true;
                     }
                     break;
                 }

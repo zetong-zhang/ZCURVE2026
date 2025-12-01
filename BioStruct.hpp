@@ -33,17 +33,19 @@ namespace bio {
     } record;
     /*  ORF type */
     typedef struct orf {
-        char *     host;        // host scaffold name
-        int_array  starts;      // alter start positions
-        int_array  types;       // alter start types 
-        int        t_start;     // true start position
-        int        end;         // true end position
-        int        len;         // length
-        char       strand;      // strand direction
-        char *     pstr;        // nucleotide sequence
-        float      gc_frac;     // GC fraction
-        double     score=0;     // zcurve score
-        bool       edge=false;  // at edge or not
+        char *     host;            // host scaffold name
+        int_array  starts;          // alter start positions
+        int_array  types;           // alter start types 
+        int        t_start;         // true start position
+        int        end;             // true end position
+        int        len;             // length
+        char       strand;          // strand direction
+        char *     pstr;            // pointer on genome
+        char *     seq=nullptr;     // nucleotide sequence
+        float      gc_frac;         // GC fraction
+        double     score=0;         // zcurve score
+        bool       partial5=false;  // partial 5'-end
+        bool       partial3=false;  // partial 3'-end
         orf(): host((char*)"anonymous") {}
         orf(char *host, int_array &&starts, int_array &&types, int end, 
             int t_start, int len, char strand, char *pstr, float gc_frac):

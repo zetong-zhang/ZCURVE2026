@@ -71,13 +71,13 @@ int main(int argc, char *argv[]) {
     
     /* orf-finder parameters */
     options.add_options("ORFfinder")
-        ("g,table",    "Specify a translation table to use.",
+        ("g,table",     "Specify a translation table to use.",
          cxxopts::value<uint32_t>()->default_value("11"))
 
-        ("l,minlen",   "Specify the mininum length of ORFs.",
+        ("l,minlen",    "Specify the mininum length of ORFs.",
          cxxopts::value<uint32_t>()->default_value("90"))
 
-        ("c,closed",   "Closed ends (do not allow orfs to run off edges).");
+        ("c,circ",      "Treat topology as circular.");
     
     /* prediction parameters */
     options.add_options("Prediction")
@@ -164,7 +164,7 @@ int main(int argc, char *argv[]) {
     float gc_cont = 0.0F;
 
     /* extract all the orfs */
-    bool closed = (bool) args.count("closed");
+    bool circ = (bool) args.count("circ");
     bio::orf_array orfs;
     for (int i = 0; i < scaffolds.size(); i ++) {
         const auto sublen = scaffolds[i].sequence.length();
@@ -172,8 +172,7 @@ int main(int argc, char *argv[]) {
         gc_cont += bio_util::gc_count(scaffolds[i].sequence.c_str(), sublen);
 
         if (sublen >= minlen) {
-            bio_util::get_orfs(scaffolds[i], starts, stops, minlen, orfs);
-            if (!closed) bio_util::get_edge_orfs(scaffolds[i], starts, stops, minlen, orfs);
+            bio_util::get_orfs(scaffolds[i], starts, stops, minlen, circ, orfs);
         } else if (!QUIET) {
             std::cerr << "Warning: skip " << scaffolds[i].name << " (too short)\n";
         }
@@ -202,11 +201,11 @@ int main(int argc, char *argv[]) {
             gc_intv_count[j] ++;
         }
     }
-
+    
     /* convert orfs to zcurve params */
     double *zparams = new double[DIM*n_orfs];
     encoding::encode_orfs(orfs, zparams);
-    
+
     /* load pre-trained models and calculate scores */
     if (!model::init_models(home_path)) return 1;
     double *probas = new double[n_orfs]();
