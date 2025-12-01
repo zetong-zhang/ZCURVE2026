@@ -2,3 +2,5 @@
 *.bat
 *.exe
 *.py
+*.fasta
+*.gff
