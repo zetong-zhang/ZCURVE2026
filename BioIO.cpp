@@ -144,14 +144,55 @@ static bool write_stream(
                 handle << std::fixed << std::setprecision(3) 
                        << orfs[i].score << '\t';
                 // strand + phase
-                handle << orfs[i].strand << "\t.\tID=orf";
+                handle << orfs[i].strand << "\t0\tID=orf";
                 // attributes
-                handle << std::setw(6) << std::setfill('0') << (++j) << '\n';
+                handle << std::setw(6) << std::setfill('0') << (++j);
+                if (orfs[i].partial3) handle << ";partial3=true\n";
+                else if (orfs[i].partial5) handle << ";partial5=true\n";
+                else handle << "\n";
             }
         }
         return true;
     } else if (format == "gbk") {
-
+        char *last_scaffold = nullptr;
+        for (int i = 0, j = 0; i < count; i ++) {
+            if (!last_scaffold || std::strcmp(orfs[i].host, last_scaffold)) {
+                if (last_scaffold) handle << "//\n";
+                handle << "DEFINITION  " << orfs[i].host << "\n";
+                last_scaffold = orfs[i].host;
+                handle << "FEATURES             Location/Qualifiers\n";
+            }
+            bool neg_strand = (bool)(orfs[i].strand == '-');
+            if (orfs[i].score > thres) {
+                handle << "     CDS             ";
+                int rstart, rend;
+                if (!neg_strand) {
+                    rstart = orfs[i].t_start + 1;
+                    rend = orfs[i].end;
+                } else {
+                    rstart = orfs[i].end + 1;
+                    rend = orfs[i].t_start;
+                    handle << "complement(";
+                }
+                if (rstart > rend) 
+                handle << "join(" << rstart << ".." 
+                << orfs[i].host_len << ",1.." << rend << ')';
+                else {
+                    if (orfs[i].partial5 && !neg_strand || 
+                        orfs[i].partial3 && neg_strand) handle << '<';
+                    handle << rstart << "..";
+                    if (orfs[i].partial3 && !neg_strand || 
+                        orfs[i].partial5 && neg_strand) handle << '>';
+                    handle << rend;
+                }
+                if (neg_strand) handle << ")";
+                handle << "\n                     /note=\"version=" << VERSION 
+                       << ";ID=orf" << std::setw(6) << std::setfill('0') << (++j)
+                       << ";score=" << std::fixed << std::setprecision(3) 
+                       << orfs[i].score << "\"\n";
+            }
+        }
+        handle << "//\n";
         return true;
     }
     std::cerr << "Error: unsupported output format '" 

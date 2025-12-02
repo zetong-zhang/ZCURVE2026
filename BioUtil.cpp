@@ -161,7 +161,7 @@ void bio_util::get_orfs(
                                 slocs.at(i) = length - slocs.at(i);
                         }
                         orfs.emplace_back(
-                            hostname, std::move(slocs), std::move(types), 
+                            hostname, length, std::move(slocs), std::move(types), 
                             end, t_start, seqlen, strand, pstr, gc_frac
                         );
                     }
@@ -186,7 +186,7 @@ void bio_util::get_orfs(
                             slocs.at(i) = length - slocs.at(i);
                     }
                     orfs.emplace_back(
-                        hostname, std::move(slocs), std::move(types), 
+                        hostname, length, std::move(slocs), std::move(types), 
                         end, t_start, seqlen, strand, pstr, gc_frac
                     );
                     orfs.at(orfs.size()-1).partial3 = true;
@@ -195,7 +195,8 @@ void bio_util::get_orfs(
 
             // search for partial 5'-end ORFs
             bool has_start = false;
-            for (int ps = (phase + ((3 - length % 3) % 3)) % 3; ps < length; ps += 3) {
+            int ps0 = (phase + ((3 - length % 3) % 3)) % 3;
+            for (int ps = ps0; ps < length; ps += 3) {
                 if (!has_start && match_codon(genome+ps, starts) > -1) {
                     has_start = true;
                     continue;
@@ -217,7 +218,7 @@ void bio_util::get_orfs(
                         } else orfs.pop_back();
                         if (has_start) orfs.erase(orfs.begin()+orf_size);
                     } else {
-                        int t_start = phase;
+                        int t_start = ps0;
                         int seqlen = end - t_start;
                         if (!has_start && seqlen >= minlen) {
                             char *pstr = genome + t_start;
@@ -228,7 +229,7 @@ void bio_util::get_orfs(
                                 t_start = length - t_start;
                             }
                             orfs.emplace_back(
-                                (char*)scaffold.name.c_str(), int_array(0), int_array(0), 
+                                hostname, length, int_array(0), int_array(0), 
                                 end, t_start, seqlen, strand, pstr, gc_frac
                             );
                             orfs.at(orfs.size()-1).partial5 = true;

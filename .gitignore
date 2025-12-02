@@ -1,4 +1,5 @@
 /.vscode
+.gitignore
 zcurve*
 *.bat
 *.exe
@@ -6,3 +7,5 @@ zcurve*
 *.fasta
 *.gb
 *.gff
+*.faa
+*.gbk

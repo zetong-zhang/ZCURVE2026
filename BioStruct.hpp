@@ -2,7 +2,7 @@
  * @brief       Bioinformatics data structures. 
  * 
  * @author      Zetong Zhang, Yan Lin, Feng Gao
- * @version     0.0.3-SNAPSHOT
+ * @version     0.0.4-SNAPSHOT
  * @date        2025-11-30
  * @license     GNU GPLv3
  * @contact     fgao@tju.edu.cn
@@ -34,6 +34,7 @@ namespace bio {
     /*  ORF type */
     typedef struct orf {
         char *     host;            // host scaffold name
+        int        host_len;        // length of host
         int_array  starts;          // alter start positions
         int_array  types;           // alter start types 
         int        t_start;         // true start position
@@ -47,10 +48,10 @@ namespace bio {
         bool       partial5=false;  // partial 5'-end
         bool       partial3=false;  // partial 3'-end
         orf(): host((char*)"anonymous") {}
-        orf(char *host, int_array &&starts, int_array &&types, int end, 
-            int t_start, int len, char strand, char *pstr, float gc_frac):
-        host(host),starts(std::move(starts)),types(std::move(types)), len(len), 
-        t_start(t_start),end(end),strand(strand),pstr(pstr),gc_frac(gc_frac){}
+        orf(char *host, int host_len, int_array &&starts, int_array &&types, 
+        int end, int t_start, int len, char strand, char *pstr, float gc_frac):
+        host(host), host_len(host_len),starts(std::move(starts)),types(std::move(types)), 
+        len(len), t_start(t_start),end(end),strand(strand),pstr(pstr),gc_frac(gc_frac){}
     } orf;
 
     /*  scaffold record array type */

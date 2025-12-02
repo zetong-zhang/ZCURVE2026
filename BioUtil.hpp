@@ -2,7 +2,7 @@
  * @brief   Utility functions for bioinformatics.
  * 
  * @author      Zetong Zhang, Yan Lin, Feng Gao
- * @version     0.0.3-SNAPSHOT
+ * @version     0.0.4-SNAPSHOT
  * @date        2025-11-30
  * @license     GNU GPLv3
  * @contact     fgao@tju.edu.cn
