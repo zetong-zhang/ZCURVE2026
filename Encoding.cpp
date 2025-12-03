@@ -1,6 +1,9 @@
 #include "Encoding.hpp"
+// offset constants
 static const int    X = 0, Y = 1, Z = 2, PHASE = 3;
+// float constants
 static const double V = 1.0F/2, W = 1.0F/3, Q = 1.0F/4;
+// dimension constants
 static int dims[] = { 9, 36, 144, 576 };
 /* 
  * Map for converting ASCII chars into one-hot vectors
@@ -153,7 +156,6 @@ void encoding::tri_trans(const char *seq, int len, double *params) {
         params[Z] = counts[p][s][b][Z] / len * PHASE;
     }
 }
-
 void encoding::quart_trans(const char *seq, int len, double *params) {
     double counts[PHASE][4][4][4][3] = {{{{{0.0f}}}}};
     int sublen = len - 3;
@@ -194,25 +196,6 @@ void encoding::encode_orfs(bio::orf_array &orfs, double *data) {
         double *head = data + (i * DIM);
         for (int j = 0; j < 4; j ++) {
             (*k_trans[j])(orfs[i].pstr, orfs[i].len, head);
-            head += dims[j];
-        }
-    }
-}
-
-void encoding::encode_orfs(bio::record_array &samples, double *data) {
-    static void (*k_trans[4])(const char *, int, double *) = {
-        mono_trans, di_trans, tri_trans, quart_trans
-    };
-    const int count = (int) samples.size();
-#ifdef _OPENMP
-    #pragma omp parallel for schedule(guided)
-#endif
-    for (int i = 0; i < count; i ++) {
-        double *head = data + (i * DIM);
-        for (int j = 0; j < 4; j ++) {
-            const char *pstr = samples[i].sequence.c_str();
-            int seqlen = (int) samples[i].sequence.length();
-            (*k_trans[j])(pstr, seqlen, head);
             head += dims[j];
         }
     }

@@ -81,6 +81,8 @@ int main(int argc, char *argv[]) {
     
     /* prediction parameters */
     options.add_options("Prediction")
+        ("b,bypass",   "Bypass semi-supervised SVM training.")
+
         ("s,thres",    "Specify putative gene score threshold.",
          cxxopts::value<double>()->default_value("0"));
     
@@ -222,13 +224,14 @@ int main(int argc, char *argv[]) {
     if (!QUIET) std::cerr << "\nTraining ...\n";
     auto thres = args["thres"].as<double>();
     double *scores = new double[n_orfs]();
-    bool flag = model::train_predict(zparams, n_orfs, probas, scores);
-    if (!flag) std::cerr << "Warning: SVM training skipped (too few samples)\n";
+    bool training = !((bool) args.count("bypass"));
+    if (training) training = model::train_predict(zparams, n_orfs, probas, scores);
+    if (!training) std::cerr << "Warning: SVM training skipped\n";
     
     /* classifying orfs */
     int num_putative = 0;
     for (int i = 0; i < n_orfs; i ++) {
-        if (!flag || (scores[i] < thres && probas[i] > 0.5)) orfs[i].score = probas[i] - 0.5;
+        if (!training || (scores[i] < thres && probas[i] > 0.5)) orfs[i].score = probas[i] - 0.5;
         else orfs[i].score = scores[i];
         if (orfs[i].score > thres) num_putative ++;
     }

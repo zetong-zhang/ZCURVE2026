@@ -1,7 +1,16 @@
+/**
+ * @brief       Model functions for Z-curve.
+ * 
+ * @author      Zetong Zhang, Yan Lin, Feng Gao
+ * @version     0.0.4-SNAPSHOT
+ * @date        2025-11-30
+ * @license     GNU GPLv3
+ * @contact     fgao@tju.edu.cn
+ */
 #include "Model.hpp"
-
+// Minimum set size for SVM training.
 static const int MIN_SET_SIZE = 30;
-
+/* SVM parameters. */
 static svm_parameter param = {
     C_SVC,   /* svm_type     */
     RBF,     /* kernel_type  */
@@ -19,9 +28,15 @@ static svm_parameter param = {
     true,    /* shrinking    */
     false    /* probability  */
 };
-
+/* Model parameters. */
 float MODELS[N_MODELS][N_PARAMS];
-
+/**
+ * @brief           Calculate dot product of two vectors using AVX instructions.
+ * @param x         The first vector.
+ * @param y         The second vector.
+ * @param dim       The dimension of the vectors.
+ * @return          The dot product of the two vectors.
+ */
 inline double dot_product_avx(const double* x, const float* y, const int dim) {
     __m256d sum_vec = _mm256_setzero_pd();
     int d = 0;
@@ -92,21 +107,22 @@ void model::mlp_predict(int index, double *data, int size, double *probas) {
 }
 
 bool model::train_predict(double *params, int size, double *init_score, double *score) {
+    static const double up_proba = 0.9;
     svm_problem prob;
-
     double mins[DIM], maxs[DIM];
     for (int j = 0; j < DIM; ++j) {
         mins[j] =  std::numeric_limits<double>::infinity();
         maxs[j] = -std::numeric_limits<double>::infinity();
     }
 
+    // split data into training set
     int n_pos = 0, n_neg = 0;
     std::vector<int> train_indices;
     prob.y = new double[size];
     prob.l = 0;
     for (int i = 0; i < size; ++i) {
         double s = init_score[i];
-        if (s > 0.9 || s < 1e-4) {
+        if (s > up_proba || s < 1e-4) {
             double* row = params + i*DIM;
             train_indices.push_back(i);
 
@@ -115,13 +131,15 @@ bool model::train_predict(double *params, int size, double *init_score, double *
                 if (v < mins[j]) mins[j] = v;
                 if (v > maxs[j]) maxs[j] = v;
             }
-            if (s > 0.9) { prob.y[prob.l] = 1.0; n_pos ++; } 
+            if (s > up_proba) { prob.y[prob.l] = 1.0; n_pos ++; } 
             else { prob.y[prob.l] = -1.0; n_neg ++; }
             ++prob.l;
         }
     }
 
     if (n_pos < MIN_SET_SIZE || n_neg < MIN_SET_SIZE) return false; 
+
+    // preprocess data (scale data to [0, 1])
 #ifdef _OPENMP
     #pragma omp parallel for
 #endif
@@ -141,6 +159,7 @@ bool model::train_predict(double *params, int size, double *init_score, double *
         }
     }
 
+    // calculate gamma
     double sum = 0.0;
     double sqsum = 0.0;
     const int total = prob.l * DIM;
@@ -152,28 +171,25 @@ bool model::train_predict(double *params, int size, double *init_score, double *
             sqsum += v * v;
         }
     }
-
     double mean = sum / total;
     double mean_sq = mean * mean;
     double var = (sqsum / total) - mean_sq;
     if (var <= 0) var = 1e-12;
-
     param.gamma = 1.0 / (DIM * var);
-
+    
+    // train svm model
     prob.x = new double *[prob.l];
-    for (int i = 0; i < prob.l; i ++) {
+    for (int i = 0; i < prob.l; i ++)
         prob.x[i] = params + train_indices[i]*DIM;
-    }
-
     svm_model *model = svm_train(&prob, &param);
     if (!model) return false;
-
+    
+    // predict scores
 #ifdef _OPENMP
     #pragma omp parallel for schedule(guided)
 #endif
-    for (int i = 0; i < size; i ++) {
+    for (int i = 0; i < size; i ++)
         score[i] = svm_predict_score(model, params + i*DIM);
-    }
     svm_free_and_destroy_model(&model);
 
     delete[] prob.x;

@@ -14,9 +14,29 @@
 #include "svm.h"
 
 namespace model {
-    bool init_models(const fs::path);
-    void mlp_predict(int, double *, int, double *);
-    bool train_predict(double *, int, double *, double *);
+    /**
+     * @brief               Initialize the mlp models from a binary file.
+     * @param model_path    The path to the binary file.
+     * @return              True if the models are successfully initialized.
+     */
+    bool init_models(const fs::path model_path);
+    /**
+     * @brief           Predict the output of a mlp model.
+     * @param model_id  The index of the mlp model.
+     * @param data      The input data.
+     * @param size      The size of the input data.
+     * @param probas    The output probabilities.
+     */
+    void mlp_predict(int index, double *data, int size, double *probas);
+    /**
+     * @brief               Train and predict the output of a SVM model.
+     * @param params        The SVM parameters.
+     * @param size          The size of the input data.
+     * @param init_score    The initial scores.
+     * @param score         The output scores.
+     * @return              True if the training and prediction are successful.
+     */
+    bool train_predict(double *params, int size, double *init_score, double *score);
 }
 
 #endif

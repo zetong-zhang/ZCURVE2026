@@ -135,10 +135,12 @@ void bio_util::get_orfs(
             genome = get_complement(scaffold.sequence);
             scaffold.complement = genome;
         }
+        std::vector<int> phase_first_orfs(3);
+        std::vector<int> first_orfs_to_del(0); 
         for (int phase = 0; phase < 3; phase ++) {
             int_array slocs(0), types(0);
             int ps;
-            int orf_size = orfs.size();
+            phase_first_orfs.at(phase) = orfs.size();
 
             // search for standard ORFs
             for (ps = phase; ps < length; ps += 3) {
@@ -216,7 +218,7 @@ void bio_util::get_orfs(
                             orf3.gc_frac = gc_fraction(orf3.seq, seqlen);
                             orf3.partial3 = false;
                         } else orfs.pop_back();
-                        if (has_start) orfs.erase(orfs.begin()+orf_size);
+                        if (has_start) first_orfs_to_del.push_back(ps0);
                     } else {
                         int t_start = ps0;
                         int seqlen = end - t_start;
@@ -238,6 +240,10 @@ void bio_util::get_orfs(
                     break;
                 }
             }
+        }
+
+        for (auto index : first_orfs_to_del) {
+            orfs.erase(orfs.begin()+phase_first_orfs.at(index));
         }
     }
 }
