@@ -1,8 +1,17 @@
+/**
+ * @brief       Model functions for Z-curve.
+ * 
+ * @author      Zetong Zhang, Yan Lin, Feng Gao
+ * @version     0.0.5-SNAPSHOT
+ * @date        2025-11-30
+ * @license     GNU GPLv3
+ * @contact     ylin@tju.edu.cn | fgao@tju.edu.cn
+ */
 #ifndef ZCURVE_MODEL
 #define ZCURVE_MODEL
 
-// The number of mlp models in models.bin.gz
-#define N_MODELS  55
+// The number of mlp models in meta.bin
+#define N_MODELS  60
 // The number of neural neurons
 #define N_HIDDEN  200
 // The number of total params in a mlp model

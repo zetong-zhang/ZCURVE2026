@@ -1,15 +1,6 @@
-/**
- * @brief       Model functions for Z-curve.
- * 
- * @author      Zetong Zhang, Yan Lin, Feng Gao
- * @version     0.0.4-SNAPSHOT
- * @date        2025-11-30
- * @license     GNU GPLv3
- * @contact     fgao@tju.edu.cn
- */
 #include "Model.hpp"
 // Minimum set size for SVM training.
-static const int MIN_SET_SIZE = 30;
+static const int MIN_SET_SIZE = 5;
 /* SVM parameters. */
 static svm_parameter param = {
     C_SVC,   /* svm_type     */
@@ -99,7 +90,7 @@ void model::mlp_predict(int index, double *data, int size, double *probas) {
         // Output Layer (200, ) -> (1, )
         double out_b = (double)model[N_PARAMS-1];
         // out = out_w * hid_out + out_b
-        probas[i] = dot_product_avx(hid_out, out_ws, N_HIDDEN);
+        probas[i] = dot_product_avx(hid_out, out_ws, N_HIDDEN) + out_b;
         // Sigmoid activation function
         probas[i] = 1.0/(1.0 + std::exp(-(probas[i])));
     }
@@ -107,7 +98,7 @@ void model::mlp_predict(int index, double *data, int size, double *probas) {
 }
 
 bool model::train_predict(double *params, int size, double *init_score, double *score) {
-    static const double up_proba = 0.9;
+    static const double up_proba = 0.6;
     svm_problem prob;
     double mins[DIM], maxs[DIM];
     for (int j = 0; j < DIM; ++j) {

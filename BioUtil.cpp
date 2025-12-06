@@ -44,7 +44,7 @@ char trans_tbl[64] = {
     'D', 'D', 'E', 'E', 'G', 'G', 'G', 'G'
 };
 
-float bio_util::gc_count(
+double bio_util::gc_count(
     const char *pstr,
     const size_t len
 ) {
@@ -56,7 +56,7 @@ float bio_util::gc_count(
     return count;
 }
 
-float bio_util::gc_fraction(
+double bio_util::gc_fraction(
     const char *pstr,
     const size_t len
 ) { 
@@ -111,7 +111,7 @@ static int refine_start(int_array &start_locs, int_array &start_types) {
     int t_start = start_locs.at(0);
     for (int k = 0; k < start_locs.size(); k ++) {
         int alter = start_locs.at(k);
-        if (start_types[k] == 0 && (alter-t_start)<=30) {
+        if (start_types[k] == 0 && (alter-t_start)<=60) {
             t_start = alter;
             break;
         }
@@ -154,7 +154,7 @@ void bio_util::get_orfs(
                     int seqlen = end - t_start;
                     if (seqlen >= minlen) {
                         char *pstr = genome + t_start;
-                        float gc_frac = gc_fraction(pstr, seqlen);
+                        double gc_frac = gc_fraction(pstr, seqlen);
                         char strand = neg_strand ? '-' : '+';
                         if (neg_strand) {
                             end = length - end;
@@ -179,7 +179,7 @@ void bio_util::get_orfs(
                 int seqlen = end - t_start;
                 if (seqlen >= minlen || circ) {
                     char *pstr = genome + t_start;
-                    float gc_frac = gc_fraction(pstr, seqlen);
+                    double gc_frac = gc_fraction(pstr, seqlen);
                     char strand = neg_strand ? '-' : '+';
                     if (neg_strand) {
                         end = length - end;
@@ -224,7 +224,7 @@ void bio_util::get_orfs(
                         int seqlen = end - t_start;
                         if (!has_start && seqlen >= minlen) {
                             char *pstr = genome + t_start;
-                            float gc_frac = gc_fraction(pstr, seqlen);
+                            double gc_frac = gc_fraction(pstr, seqlen);
                             char strand = neg_strand ? '-' : '+';
                             if (neg_strand) {
                                 end = length - end;

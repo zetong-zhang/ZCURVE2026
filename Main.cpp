@@ -4,10 +4,10 @@
  *                                                                 *    
  *      @copyright:   (C) 2003-2026 TUBIC, Tianjin University      *
  *      @author:      Zetong Zhang, Yan Lin, Feng Gao              *
- *      @version:     0.0.4-SNAPSHOT                               *
+ *      @version:     0.0.5-SNAPSHOT                               *
  *      @date:        2025-11-30                                   *
  *      @license:     GNU GPLv3                                    *
- *      @contact:     fgao@tju.edu.cn                              *
+ *      @contact:     ylin@tju.edu.cn | fgao@tju.edu.cn            *
  *                                                                 *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
@@ -21,7 +21,6 @@
 #include <omp.h>
 #include <chrono>
 #include <random>
-#include <immintrin.h>
 
 #include "cxxopts.hpp"
 
@@ -37,11 +36,11 @@ static fs::path get_home_path();
 
 int main(int argc, char *argv[]) {
     auto start_t = std::chrono::system_clock::now();  // program start time
-    fs::path exe_name(argv[0]);  // executable file name
+    auto exe_name = fs::path(argv[0]).filename().string();  // executable file name
     fs::path home_path = get_home_path();  // home path
-
+    
     /* set and parse parameters */
-    cxxopts::Options options(exe_name.filename().string());
+    cxxopts::Options options(exe_name);
 
     /* general parameters */
     options.add_options("General")
@@ -93,17 +92,19 @@ int main(int argc, char *argv[]) {
         std::cerr << "Error: " << e.what() << "\nUse '-h' or '--help' to show help info\n";
         return 1;
     }
-    
+
     /* show help information and exit with code 0 */
-    if (args.count("help")) {
+    if (argc <= 1 || args.count("help")) {
         std::cerr << "- - - - - - - - - - - - - - - - - - - - - - - - - - -\n"
                   << "PROTEIN-CODING GENE RECOGNITION SYSTEM OF ZCURVE 2026\n\n"
                   << "Copyright:  (C) 2003-2026 TUBIC, Tianjin University  \n"
-                  << "Authors:    Zetong Zhang, Yan Lin & Feng Gao         \n"
+                  << "Authors:    Zetong Zhang, Yan Lin, Feng Gao          \n"
                   << "Date:       November 30, 2025                        \n"
-                  << "Contact:    fgao@tju.edu.cn                          \n"
+                  << "Contact:    ylin@tju.edu.cn | fgao@tju.edu.cn        \n"
                   << "- - - - - - - - - - - - - - - - - - - - - - - - - - -"
-                  << options.help() << '\n';
+                  << options.help() << "\nExample: " << exe_name << ' '
+                  << "-i example.fa -o example.gff -c -f gff               \n";
+        
         return 0;
     }
 
@@ -160,10 +161,14 @@ int main(int argc, char *argv[]) {
     if (args.count("input")) input = args["input"].as<std::string>();
     bio::record_array scaffolds(0);
     if (!bio_io::read_source(input, scaffolds)) return 1;
+    if (!scaffolds.size()) {
+        std::cerr << "Error: no valid sequence was read\n";
+        return 0;
+    }
     if (!QUIET) std::cerr << "Number of Scaffolds: " << std::setw(32) << scaffolds.size() << '\n';
 
     size_t total_len = 0;
-    float gc_cont = 0.0F;
+    double gc_cont = 0.0;
 
     /* extract all the orfs */
     bool circ = (bool) args.count("circ");
@@ -192,13 +197,13 @@ int main(int argc, char *argv[]) {
 
     /* sort orfs by G+C content */
     std::sort(orfs.begin(), orfs.end(), [](bio::orf& a, bio::orf& b) { return a.gc_frac < b.gc_frac; });
-    int gc_intv_count[56] = {0};
+    int gc_intv_count[N_MODELS+1] = {0};
     {
-        double max_gc = 0.23;
+        double max_gc = 0.20;
         for (int i = 0, j = 0; i < n_orfs; i ++) {
-            if (orfs.at(i).gc_frac >= max_gc) {
+            if (orfs.at(i).gc_frac > max_gc) {
                 max_gc += 0.01;
-                if ((++j) >= 56) break;
+                if ((++j) >= (N_MODELS+1)) break;
             }
             gc_intv_count[j] ++;
         }
@@ -213,11 +218,11 @@ int main(int argc, char *argv[]) {
     double *probas = new double[n_orfs]();
     int off = 0;
     if (!QUIET) std::cerr << "Initialization:" << std::setw(38) << "0 %";
-    for (int i = 1; i <= 55; i ++) {
+    for (int i = 1; i <= N_MODELS; i ++) {
         off += gc_intv_count[i-1];
         int size = gc_intv_count[i];
         model::mlp_predict(i-1, zparams+off*DIM, size, probas+off);
-        if (!QUIET) std::cerr << "\rInitialization:" << std::setw(36) << (int)(i*1.82) << " %";
+        if (!QUIET) std::cerr << "\rInitialization:" << std::setw(36) << (int)(i*1.67) << " %";
     }
     
     /* train rbf-svm model */
@@ -231,7 +236,7 @@ int main(int argc, char *argv[]) {
     /* classifying orfs */
     int num_putative = 0;
     for (int i = 0; i < n_orfs; i ++) {
-        if (!training || (scores[i] < thres && probas[i] > 0.5)) orfs[i].score = probas[i] - 0.5;
+        if (!training || (scores[i] < thres && probas[i] >= 0.5)) orfs[i].score = probas[i] - 0.5;
         else orfs[i].score = scores[i];
         if (orfs[i].score > thres) num_putative ++;
     }

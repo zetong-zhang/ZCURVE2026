@@ -2,10 +2,10 @@
  * @brief   Utility functions for bioinformatics.
  * 
  * @author      Zetong Zhang, Yan Lin, Feng Gao
- * @version     0.0.4-SNAPSHOT
+ * @version     0.0.5-SNAPSHOT
  * @date        2025-11-30
  * @license     GNU GPLv3
- * @contact     fgao@tju.edu.cn
+ * @contact     ylin@tju.edu.cn | fgao@tju.edu.cn
  */
 #ifndef BIO_UTIL
 #define BIO_UTIL
@@ -28,7 +28,7 @@ namespace bio_util {
      * @param   len length of the sequence.
      * @return  float GC number.
      */
-    float gc_count(const char *seq, const size_t len);
+    double gc_count(const char *seq, const size_t len);
     /**
      * @brief   calculate GC fraction in a nucleotide sequence.
      * 
@@ -36,7 +36,7 @@ namespace bio_util {
      * @param   len length of the sequence.
      * @return  float GC fraction.
      */
-    float gc_fraction(const char *seq, const size_t len);
+    double gc_fraction(const char *seq, const size_t len);
     /**
      * @brief   get the complement sequence of a nucleotide sequence.
      * 

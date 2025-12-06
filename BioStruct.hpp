@@ -2,10 +2,10 @@
  * @brief       Bioinformatics data structures. 
  * 
  * @author      Zetong Zhang, Yan Lin, Feng Gao
- * @version     0.0.4-SNAPSHOT
+ * @version     0.0.5-SNAPSHOT
  * @date        2025-11-30
  * @license     GNU GPLv3
- * @contact     fgao@tju.edu.cn
+ * @contact     ylin@tju.edu.cn | fgao@tju.edu.cn
  */
 #ifndef BIO_STRUCT
 #define BIO_STRUCT
@@ -43,7 +43,7 @@ namespace bio {
         char       strand;          // strand direction
         char *     pstr;            // pointer on genome
         char *     seq=nullptr;     // nucleotide sequence
-        float      gc_frac;         // GC fraction
+        double     gc_frac;         // GC fraction
         double     score=0;         // zcurve score
         bool       partial5=false;  // partial 5'-end
         bool       partial3=false;  // partial 3'-end
