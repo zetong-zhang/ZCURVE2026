@@ -4,13 +4,13 @@ static const int MIN_SET_SIZE = 5;
 /* SVM parameters. */
 static svm_parameter param = {
     C_SVC,   /* svm_type     */
-    RBF,     /* kernel_type  */
+    RBF,  /* kernel_type  */
     3,       /* degree       */
     1/DIM,   /* gamma        */
     0.0,     /* coef0        */
     200,     /* cache_size   */
-    1e-4,    /* eps          */
-    1.0,     /* C            */
+    1e-3,    /* eps          */
+    20.0,    /* C            */
     0,       /* nr_weight    */
     nullptr, /* weight_label */
     nullptr, /* weight       */
@@ -29,6 +29,8 @@ float MODELS[N_MODELS][N_PARAMS];
  * @return          The dot product of the two vectors.
  */
 inline double dot_product_avx(const double* x, const float* y, const int dim) {
+#ifdef __AVX__
+    // ---- AVX version ----
     __m256d sum_vec = _mm256_setzero_pd();
     int d = 0;
     for (; d + 4 <= dim; d += 4) {
@@ -44,6 +46,13 @@ inline double dot_product_avx(const double* x, const float* y, const int dim) {
     for (; d < dim; ++d)
         sum += x[d] * y[d];
     return sum;
+#else
+    // ---- Non-AVX fallback ----
+    double sum = 0.0;
+    for (int d = 0; d < dim; ++d)
+        sum += x[d] * y[d];
+    return sum;
+#endif
 }
 
 bool model::init_models(const fs::path model_path) {

@@ -5,7 +5,6 @@ zcurve*
 *.exe
 *.py
 *.fasta
-*.fa
 *.gb
 *.gff
 *.faa

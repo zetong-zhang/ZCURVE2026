@@ -276,47 +276,78 @@ Kernel::~Kernel()
 
 double Kernel::dot(const double *x, const double *y, int dim)
 {
+#ifdef __AVX__
+    __m256d sum = _mm256_setzero_pd();
     int i = 0;
 
-    __m256d sum = _mm256_setzero_pd();
-
+    #ifdef __FMA__
     for (; i + 3 < dim; i += 4) {
         __m256d vx = _mm256_loadu_pd(x + i);
         __m256d vy = _mm256_loadu_pd(y + i);
         sum = _mm256_fmadd_pd(vx, vy, sum);
     }
+    #else
+
+    for (; i + 3 < dim; i += 4) {
+        __m256d vx = _mm256_loadu_pd(x + i);
+        __m256d vy = _mm256_loadu_pd(y + i);
+        sum = _mm256_add_pd(sum, _mm256_mul_pd(vx, vy));
+    }
+    #endif
 
     __m128d lo = _mm256_castpd256_pd128(sum);
     __m128d hi = _mm256_extractf128_pd(sum, 1);
     __m128d s2 = _mm_add_pd(lo, hi);
     double result = _mm_cvtsd_f64(_mm_add_pd(s2, _mm_unpackhi_pd(s2, s2)));
-
     for (; i < dim; ++i)
         result += x[i] * y[i];
 
     return result;
+
+#else
+    double result = 0.0;
+    for (int i = 0; i < dim; ++i)
+        result += x[i] * y[i];
+    return result;
+
+#endif
 }
 
 double Kernel::k_function(const double *x, const double *y,
-			  const svm_parameter& param, int dim)
+                          const svm_parameter& param, int dim)
 {
-	switch(param.kernel_type)
-	{
-		case LINEAR:
-			return dot(x,y);
-		case POLY:
-			return powi(param.gamma*dot(x,y)+param.coef0,param.degree);
+    switch(param.kernel_type)
+    {
+        case LINEAR:
+            return dot(x,y);
+
+        case POLY:
+            return powi(param.gamma * dot(x,y) + param.coef0, param.degree);
+
         case RBF:
         {
+#ifdef __AVX__
+            __m256d sum_vec = _mm256_setzero_pd();
             int i = 0;
-            __m256d sum_vec = _mm256_setzero_pd(); // 4×double
+
+            #ifdef __FMA__
 
             for (; i + 3 < dim; i += 4) {
                 __m256d vx = _mm256_loadu_pd(x + i);
                 __m256d vy = _mm256_loadu_pd(y + i);
                 __m256d diff = _mm256_sub_pd(vx, vy);
-                sum_vec = _mm256_fmadd_pd(diff, diff, sum_vec); // sum += diff * diff
+                sum_vec = _mm256_fmadd_pd(diff, diff, sum_vec);
             }
+            #else
+
+            for (; i + 3 < dim; i += 4) {
+                __m256d vx = _mm256_loadu_pd(x + i);
+                __m256d vy = _mm256_loadu_pd(y + i);
+                __m256d diff = _mm256_sub_pd(vx, vy);
+                __m256d mul  = _mm256_mul_pd(diff, diff);
+                sum_vec = _mm256_add_pd(sum_vec, mul);
+            }
+            #endif
 
             __m128d lo = _mm256_castpd256_pd128(sum_vec);
             __m128d hi = _mm256_extractf128_pd(sum_vec, 1);
@@ -327,14 +358,26 @@ double Kernel::k_function(const double *x, const double *y,
                 sum += (x[i] - y[i]) * (x[i] - y[i]);
 
             return exp(-param.gamma * sum);
+
+#else
+            double sum = 0.0;
+            for (int i = 0; i < dim; ++i) {
+                double diff = x[i] - y[i];
+                sum += diff * diff;
+            }
+            return exp(-param.gamma * sum);
+#endif
         }
-		case SIGMOID:
-			return tanh(param.gamma*dot(x,y)+param.coef0);
-		case PRECOMPUTED:  //x: test (validation), y: SV
-			return x[(int)*y];
-		default:
-			return 0;  // Unreachable
-	}
+
+        case SIGMOID:
+            return tanh(param.gamma * dot(x,y) + param.coef0);
+
+        case PRECOMPUTED:
+            return x[(int)*y];
+
+        default:
+            return 0;
+    }
 }
 
 // An SMO algorithm in Fan et al., JMLR 6(2005), p. 1889--1918

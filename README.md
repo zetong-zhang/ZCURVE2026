@@ -11,7 +11,10 @@ Download and compile the source code yourself.
 ```bash
 g++ -DZLIB -o zcurve -fopenmp -mavx -mfma Main.cpp BioIO.cpp BioUtil.cpp Encoding.cpp Model.cpp svm.cpp -lz -O2
 ```
-If your system doesn't have zlib installed, or you just don't want to use zlib, just remove the -DZLIB option.
+*Note:*  
+(1) If your system doesn't have zlib installed, or you just don't want to use zlib, just remove the `-DZLIB` option;   
+(2) If you don't want to use AVX and FMA function, just remove the `-mavx` and `-mfma` option.
+
 ## Usage
 ### Quick Start
 We recommend configure the environment variable `PATH` to include the directory of the executable binary file, such that you can run `zcurve` directly in the terminal.
