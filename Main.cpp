@@ -218,11 +218,11 @@ int main(int argc, char *argv[]) {
     double *probas = new double[n_orfs]();
     int off = 0;
     if (!QUIET) std::cerr << "Initialization:" << std::setw(38) << "0 %";
-    for (int i = 1; i <= N_MODELS; i ++) {
-        off += gc_intv_count[i-1];
+    for (int i = 0; i < N_MODELS; i ++) {
         int size = gc_intv_count[i];
-        model::mlp_predict(i-1, zparams+off*DIM, size, probas+off);
+        model::mlp_predict(i, zparams+off*DIM, size, probas+off);
         if (!QUIET) std::cerr << "\rInitialization:" << std::setw(36) << (int)(i*1.67) << " %";
+        off += gc_intv_count[i];
     }
     
     /* train rbf-svm model */
@@ -240,29 +240,37 @@ int main(int argc, char *argv[]) {
         else orfs[i].score = scores[i];
         if (orfs[i].score > thres) num_putative ++;
     }
+    bio::orf_array putative(num_putative);
+    std::copy_if(orfs.begin(), orfs.end(), putative.begin(), [thres](const bio::orf& orf) { 
+        return orf.score > thres; 
+    });
     if (!QUIET) std::cerr << "Number of Putative Genes:" << std::setw(28) << num_putative << "\n";
-    
+
     /* write results to output */
     std::string output = "-";
     if (args.count("output")) output = args["output"].as<std::string>();
-    std::sort(orfs.begin(), orfs.end(), [](bio::orf& a, bio::orf& b) { 
+    std::sort(putative.begin(), putative.end(), [](bio::orf& a, bio::orf& b) {
         int host_cmp = std::strcmp(a.host, b.host);
         if (host_cmp < 0) return true;
         else if (host_cmp > 0) return false;
-        else return a.end < b.end;
+        else {
+            int a_end = (a.strand=='+')?a.end:a.host_len-a.t_start;
+            int b_end = (b.strand=='+')?b.end:b.host_len-b.t_start;
+            return a_end < b_end;
+        }
     });
-    bio_io::write_result(orfs, output, format, thres);
+    bio_io::write_result(putative, output, format);
 
     /* write protein sequences */
     if (args.count("faa")) {
         auto faa = args["faa"].as<std::string>();
-        if(!bio_io::write_faa(orfs, faa, thres)) return 1;
+        if(!bio_io::write_faa(putative, faa)) return 1;
     }
 
     /* write nucleotide sequences */
     if (args.count("fna")) {
         auto fna = args["fna"].as<std::string>();
-        if(!bio_io::write_fna(orfs, fna, thres)) return 1;
+        if(!bio_io::write_fna(putative, fna)) return 1;
     }
 
     if (!QUIET) {

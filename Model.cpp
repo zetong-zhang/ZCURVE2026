@@ -10,7 +10,7 @@ static svm_parameter param = {
     0.0,     /* coef0        */
     200,     /* cache_size   */
     1e-3,    /* eps          */
-    20.0,    /* C            */
+    10.0,    /* C            */
     0,       /* nr_weight    */
     nullptr, /* weight_label */
     nullptr, /* weight       */

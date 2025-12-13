@@ -11,7 +11,7 @@
 #define ZCURVE_MODEL
 
 // The number of mlp models in meta.bin
-#define N_MODELS  60
+#define N_MODELS  61
 // The number of neural neurons
 #define N_HIDDEN  200
 // The number of total params in a mlp model

@@ -1,6 +1,7 @@
 # ZCURVE 2026
-A Prokaryotic Protein-coding Gene Recognition System
+A Prokaryotic Protein-coding Gene Recognition System  
 
+![Software Features](./features.png)
 ## Setup
 ### Windows/Linux (x86_64)
 Download the latest precompiled binary file from the [release page](https://github.com/zetong-zhang/ZCURVE2026/releases), and decompress it to the directory of your choice.

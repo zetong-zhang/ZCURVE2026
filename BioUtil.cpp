@@ -119,6 +119,20 @@ static int refine_start(int_array &start_locs, int_array &start_types) {
     return t_start;
 }
 
+static op_type check_overprint(const bio::orf &a, const bio::orf &b) {
+    static const int MIN_OLEN = 60;
+    if (!strcmp(a.host, b.host) && a.strand == b.strand) {
+        int olen = 0;
+        if (a.strand == '+' && a.end > b.t_start && b.end > a.t_start)
+            olen = std::min(a.end, b.end) - std::max(a.t_start, b.t_start);
+        if (a.strand == '-' && a.end < b.t_start && b.end < a.t_start)
+            olen = std::min(a.t_start, b.t_start) - std::max(a.end, b.end);
+        if (olen == a.len || olen == b.len) return op_type::INCLUDE;
+        else if (olen >= MIN_OLEN) return op_type::INTERSECT;
+    }
+    return op_type::DISJOINT;
+}
+
 void bio_util::get_orfs(
     bio::record &scaffold,
     const str_array &starts,
@@ -156,12 +170,6 @@ void bio_util::get_orfs(
                         char *pstr = genome + t_start;
                         double gc_frac = gc_fraction(pstr, seqlen);
                         char strand = neg_strand ? '-' : '+';
-                        if (neg_strand) {
-                            end = length - end;
-                            t_start = length - t_start;
-                            for (int i = 0; i < slocs.size(); i ++)
-                                slocs.at(i) = length - slocs.at(i);
-                        }
                         orfs.emplace_back(
                             hostname, length, std::move(slocs), std::move(types), 
                             end, t_start, seqlen, strand, pstr, gc_frac
@@ -181,12 +189,6 @@ void bio_util::get_orfs(
                     char *pstr = genome + t_start;
                     double gc_frac = gc_fraction(pstr, seqlen);
                     char strand = neg_strand ? '-' : '+';
-                    if (neg_strand) {
-                        end = length - end;
-                        t_start = length - t_start;
-                        for (int i = 0; i < slocs.size(); i ++)
-                            slocs.at(i) = length - slocs.at(i);
-                    }
                     orfs.emplace_back(
                         hostname, length, std::move(slocs), std::move(types), 
                         end, t_start, seqlen, strand, pstr, gc_frac
@@ -212,7 +214,7 @@ void bio_util::get_orfs(
                             orf3.seq = new char[seqlen];
                             std::strncpy(orf3.seq, orf3.pstr, orf3.len);
                             std::strncpy(orf3.seq+orf3.len, genome, end);
-                            orf3.end = neg_strand ? (length - end) : end;
+                            orf3.end = end;
                             orf3.len = seqlen;
                             orf3.pstr = orf3.seq;
                             orf3.gc_frac = gc_fraction(orf3.seq, seqlen);
@@ -226,10 +228,6 @@ void bio_util::get_orfs(
                             char *pstr = genome + t_start;
                             double gc_frac = gc_fraction(pstr, seqlen);
                             char strand = neg_strand ? '-' : '+';
-                            if (neg_strand) {
-                                end = length - end;
-                                t_start = length - t_start;
-                            }
                             orfs.emplace_back(
                                 hostname, length, int_array(0), int_array(0), 
                                 end, t_start, seqlen, strand, pstr, gc_frac

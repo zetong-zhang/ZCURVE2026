@@ -20,6 +20,12 @@
 /*  codon to amino acid map */
 extern char trans_tbl[64];
 
+enum op_type {
+    DISJOINT,
+    INTERSECT,
+    INCLUDE
+};
+
 namespace bio_util {
     /**
      * @brief   count GC number in a nucleotide sequence.

@@ -43,32 +43,28 @@ namespace bio_io {
      * @param orfs      The ORF array to be written.
      * @param filename  The path to the output file.
      * @param format    The format of the output file.
-     * @param thres     The threshold score for ORF selection.
      * @return true If the file is successfully written.
      *         false If the file is not successfully written.
      */
-    bool write_result(bio::orf_array &orfs, const std::string &filename, 
-                      const std::string &format, const double thres);
+    bool write_result(bio::orf_array &orfs, const std::string &filename, const std::string &format);
     /** 
      * @brief   Write the ORFs to a FASTA file.
      * 
      * @param orfs      The ORF array to be written.
      * @param filename  The path to the output file.
-     * @param thres     The threshold score for ORF selection.
      * @return true If the file is successfully written.
      *         false If the file is not successfully written.
      */
-    bool write_faa(bio::orf_array &orfs, const std::string &filename, const double thres);
+    bool write_faa(bio::orf_array &orfs, const std::string &filename);
     /** 
      * @brief   Write the ORFs to a FASTA file.
      * 
      * @param orfs      The ORF array to be written.
      * @param filename  The path to the output file.
-     * @param thres     The threshold score for ORF selection.
      * @return true If the file is successfully written.
      *         false If the file is not successfully written.
      */
-    bool write_fna(bio::orf_array &orfs, const std::string &filename, const double thres);
+    bool write_fna(bio::orf_array &orfs, const std::string &filename);
 }
 
 #endif
