@@ -162,8 +162,13 @@ int main(int argc, char *argv[]) {
     std::string input = "-";
     if (args.count("input")) input = args["input"].as<std::string>();
     bio::record_array scaffolds(0);
-    if (!bio_io::read_source(input, scaffolds)) return 1;
-    if (!scaffolds.size()) {
+    if (!bio_io::read_source(input, scaffolds)) {
+        if (input == "example.fa") {
+            auto example = (home_path / "example.fa").string();
+            if (bio_io::read_source(example, scaffolds)) goto CHECK;
+        } return 1;
+    }
+    CHECK: if (!scaffolds.size()) {
         std::cerr << "Error: no valid sequence was read\n";
         return 0;
     }
