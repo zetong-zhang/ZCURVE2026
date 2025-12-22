@@ -165,7 +165,7 @@ int main(int argc, char *argv[]) {
     if (!bio_io::read_source(input, scaffolds)) {
         if (input == "example.fa") {
             auto example = (home_path / "example.fa").string();
-            if (bio_io::read_source(example, scaffolds)) goto CHECK;
+            if(bio_io::read_source(example, scaffolds)) goto CHECK;
         } return 1;
     }
     CHECK: if (!scaffolds.size()) {

@@ -217,7 +217,7 @@ bool bio_io::read_source(
         const char *err_msg = gzerror(file, &err_code);
         if (err_code != Z_OK && err_code != Z_STREAM_END) {
             gzclose(file);
-            std::cerr << "\nError: failed to decompress " << filename << std::endl;
+            std::cerr << "\nError: failed to decompress " << filename << "\n";
             return false;
         }
         gzclose(file);
@@ -228,7 +228,8 @@ bool bio_io::read_source(
     else {
         std::ifstream handle(filename);
         if (!handle.is_open()) {
-            std::cerr << "\nError: cannot open " << filename << std::endl;
+            if (filename != "example.fa") 
+                std::cerr << "\nError: cannot open " << filename << "\n";
             return false;
         }
         return read_stream(handle, scaffolds);
