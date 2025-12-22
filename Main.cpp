@@ -4,7 +4,7 @@
  *                                                                 *    
  *      @copyright:   (C) 2003-2026 TUBIC, Tianjin University      *
  *      @author:      Zetong Zhang, Yan Lin, Feng Gao              *
- *      @version:     0.0.5-SNAPSHOT                               *
+ *      @version:     0.0.6-SNAPSHOT                               *
  *      @date:        2025-11-30                                   *
  *      @license:     GNU GPLv3                                    *
  *      @contact:     ylin@tju.edu.cn | fgao@tju.edu.cn            *
@@ -20,7 +20,6 @@
 
 #include <omp.h>
 #include <chrono>
-#include <random>
 
 #include "cxxopts.hpp"
 
@@ -31,6 +30,8 @@
 
 /* run the program in quiet mode */
 static bool QUIET = false;
+/* set the random seed */
+static int RAN_SEED = 32522;
 /* get the home path */
 static fs::path get_home_path();
 
@@ -38,6 +39,7 @@ int main(int argc, char *argv[]) {
     auto start_t = std::chrono::system_clock::now();  // program start time
     auto exe_name = fs::path(argv[0]).filename().string();  // executable file name
     fs::path home_path = get_home_path();  // home path
+    std::mt19937_64 ran_eng(RAN_SEED);  // random engine
     
     /* set and parse parameters */
     cxxopts::Options options(exe_name);
@@ -210,30 +212,35 @@ int main(int argc, char *argv[]) {
     }
     
     /* convert orfs to zcurve params */
-    double *zparams = new double[DIM*n_orfs];
-    encoding::encode_orfs(orfs, zparams);
+    double *params = new double[DIM_A*n_orfs];
+    encoding::encode_orfs(orfs, params);
 
     /* load pre-trained models and calculate scores */
     if (!model::init_models(home_path)) return 1;
     double *probas = new double[n_orfs]();
-    int off = 0;
+    int off = 0, num_seeds = 0;
     if (!QUIET) std::cerr << "Initialization:" << std::setw(38) << "0 %";
     for (int i = 0; i < N_MODELS; i ++) {
         int size = gc_intv_count[i];
-        model::mlp_predict(i, zparams+off*DIM, size, probas+off);
+        model::mlp_predict(i, params+off*DIM_A, size, probas+off);
         if (!QUIET) std::cerr << "\rInitialization:" << std::setw(36) << (int)(i*1.67) << " %";
         off += gc_intv_count[i];
     }
+    int_array seeds;
+    for (int i=0;i<n_orfs;i++) if (probas[i]>UP_PROBA) { seeds.push_back(i); num_seeds ++; }
+    if (!QUIET) std::cerr << "\nNumber of Seed ORFs: " << std::setw(32) << seeds.size() << "\n";
     
-    /* train rbf-svm model */
-    if (!QUIET) std::cerr << "\nTraining ...\n";
-    auto thres = args["thres"].as<double>();
+    /* train rbs-svm models */
+    if (!QUIET) std::cerr << "Training Model ...";
     double *scores = new double[n_orfs]();
     bool training = !((bool) args.count("bypass"));
-    if (training) training = model::train_predict(zparams, n_orfs, probas, scores);
-    if (!training) std::cerr << "Warning: SVM training skipped\n";
+    if (training) {
+        training = model::train_predict(params, n_orfs, probas, scores);
+        if (!QUIET) std::cerr << std::setw(36) << (training ? "Done\n" : "Skipped\n");
+    } else if (!QUIET) std::cerr << std::setw(36) << "Bypassed\n";
     
     /* classifying orfs */
+    auto thres = args["thres"].as<double>();
     int num_putative = 0;
     for (int i = 0; i < n_orfs; i ++) {
         if (!training || (scores[i] < thres && probas[i] >= 0.5)) orfs[i].score = probas[i] - 0.5;

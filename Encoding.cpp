@@ -184,20 +184,24 @@ void encoding::quart_trans(const char *seq, int len, double *params) {
     }
 }
 
-void encoding::encode_orfs(bio::orf_array &orfs, double *data) {
+void encoding::encode(const char *seq, int len, double *data, int n_trans) {
     static void (*k_trans[4])(const char *, int, double *) = {
         mono_trans, di_trans, tri_trans, quart_trans
     };
+    for (int j = 0; j < n_trans; j ++) {
+        (*k_trans[j])(seq, len, data);
+        data += dims[j];
+    }
+}
+
+void encoding::encode_orfs(bio::orf_array &orfs, double *data) {
     const int count = (int) orfs.size();
 #ifdef _OPENMP
     #pragma omp parallel for
 #endif
     for (int i = 0; i < count; i ++) {
-        double *head = data + (i * DIM);
-        for (int j = 0; j < 4; j ++) {
-            (*k_trans[j])(orfs[i].pstr, orfs[i].len, head);
-            head += dims[j];
-        }
+        double *head = data + (i * DIM_A);
+        encode(orfs[i].pstr, orfs[i].len, head, 4);
     }
 }
 
@@ -250,4 +254,69 @@ double *encoding::std_trans(
         }
     }
     return cache;
+}
+
+double encoding::get_slope(double *params, int len) {
+    double ySum, xySum, kp;
+
+    for (int i = 0, ySum = 0, xySum = 0; i < len; i ++)
+        ySum += params[i], xySum += params[i] * i;
+
+    kp = (xySum / (len - 1) - ySum / 2) / len / (len + 1) * 12;
+
+    return kp;
+}
+
+double encoding::x_prime_curve(char *seq, int len, double *params) {
+    double counts = 0.0;
+    double ySum, xySum, kp;
+    int i;
+
+    for (i = 0; i < len; i ++) {
+        counts += Z_COORD[seq[i]][X];
+        params[i] = counts;
+    }
+
+    kp = get_slope(params, len);
+    
+    for (i = 1; i < len; i++)
+        params[i] -= kp * i;
+    
+    return kp;
+}
+
+double encoding::y_prime_curve(char *seq, int len, double *params) {
+    double counts = 0.0;
+    double ySum, xySum, kp;
+    int i;
+
+    for (i = 0; i < len; i ++) {
+        counts += Z_COORD[seq[i]][Y];
+        params[i] = counts;
+    }
+    
+    kp = get_slope(params, len);
+    
+    for (i = 1; i < len; i++)
+        params[i] -= kp * i;
+    
+    return kp;
+}
+
+double encoding::z_prime_curve(char *seq, int len, double *params) {
+    double counts = 0.0;
+    double ySum, xySum, kp;
+    int i;
+
+    for (i = 0; i < len; i ++) {
+        counts += Z_COORD[seq[i]][Z];
+        params[i] = counts;
+    }
+    
+    kp = get_slope(params, len);
+    
+    for (i = 1; i < len; i++)
+        params[i] -= kp * i;
+    
+    return kp;
 }

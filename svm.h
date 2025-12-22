@@ -2,6 +2,7 @@
 #define _LIBSVM_H
 
 #define LIBSVM_VERSION 336
+#define DIM_S 189
 
 #include <immintrin.h>
 

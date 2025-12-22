@@ -2,7 +2,7 @@
  * @brief   Utility functions for bioinformatics.
  * 
  * @author      Zetong Zhang, Yan Lin, Feng Gao
- * @version     0.0.5-SNAPSHOT
+ * @version     0.0.6-SNAPSHOT
  * @date        2025-11-30
  * @license     GNU GPLv3
  * @contact     ylin@tju.edu.cn | fgao@tju.edu.cn
@@ -20,11 +20,7 @@
 /*  codon to amino acid map */
 extern char trans_tbl[64];
 
-enum op_type {
-    DISJOINT,
-    INTERSECT,
-    INCLUDE
-};
+enum op_type { DISJOINT, INTERSECT, INCLUDE };
 
 namespace bio_util {
     /**

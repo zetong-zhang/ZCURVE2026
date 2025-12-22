@@ -157,7 +157,8 @@ static bool write_stream(
         char *last_scaffold = nullptr;
         for (int i = 0, j = 0; i < count; i ++) {
             if (!last_scaffold || std::strcmp(orfs[i].host, last_scaffold)) {
-                if (last_scaffold) handle << "//\n";
+                if (last_scaffold) handle << "ORIGIN\n//\n";
+                handle << "LOCUS       " << orfs[i].host << "\n";
                 handle << "DEFINITION  " << orfs[i].host << "\n";
                 last_scaffold = orfs[i].host;
                 handle << "FEATURES             Location/Qualifiers\n";
@@ -190,7 +191,7 @@ static bool write_stream(
                    << ";score=" << std::fixed << std::setprecision(3) 
                    << orfs[i].score << "\"\n";
         }
-        handle << "//\n";
+        handle << "ORIGIN\n//\n";
         return true;
     }
     std::cerr << "Error: unsupported output format '" 
@@ -269,12 +270,14 @@ bool bio_io::write_faa(
             rstart = host_len - orfs[i].end + 1;
             rend = host_len - orfs[i].t_start;
         }
-        handle << '>' << orfs[i].host << '_' << rstart 
-        << '_' << rend << '_' << orfs[i].strand << '\n';
+        handle << '>' << orfs[i].host << ':' << rstart << ".." << rend << '(' 
+               << orfs[i].strand << ") score=" << orfs[i].score << '\n';
         int prolen = orfs[i].len / 3;
         char *protein = bio_util::gene2protein(orfs[i], prolen);
         if (!protein) {
-            std::cerr << "Warning: invalid characters encountered\n";
+            std::cerr << "Warning: invalid characters encountered in "
+                      << orfs[i].host << ':' << rstart 
+                      << ".." << rend << '(' << orfs[i].strand << ")\n";
             continue;
         }
         for (int j = 0; j < prolen; j += 80) {
@@ -307,8 +310,8 @@ bool bio_io::write_fna(
             rstart = orfs[i].end + 1;
             rend = orfs[i].t_start;
         }
-        handle << '>' << orfs[i].host << '_' << rstart << '_' << rend 
-        << '_' << orfs[i].strand << " score=" << orfs[i].score << '\n';
+        handle << '>' << orfs[i].host << ':' << rstart << ".." << rend << '(' 
+               << orfs[i].strand << ") score=" << orfs[i].score << '\n';
         for (int j = 0; j < orfs[i].len; j += 80) {
             int line_length = std::min(80, orfs[i].len - j);
             handle.write(orfs[i].pstr + j, line_length);

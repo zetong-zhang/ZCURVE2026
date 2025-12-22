@@ -188,7 +188,7 @@ public:
 	virtual ~Kernel();
 
 	static double k_function(const double *x, const double *y,
-				 const svm_parameter& param, int dim=189);
+				 const svm_parameter& param, int dim=DIM_S);
 	virtual Qfloat *get_Q(int column, int len) const = 0;
 	virtual double *get_QD() const = 0;
 	virtual void swap_index(int i, int j) const	// no so const...
@@ -210,7 +210,7 @@ private:
 	const double gamma;
 	const double coef0;
 
-	static double dot(const double *px, const double *py, int dim=189);
+	static double dot(const double *px, const double *py, int dim=DIM_S);
 	double kernel_linear(int i, int j) const
 	{
 		return dot(x[i],x[j]);

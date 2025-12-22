@@ -1,4 +1,5 @@
 #include "Model.hpp"
+#define FLOAT_ZERO 1E-25
 // Minimum set size for SVM training.
 static const int MIN_SET_SIZE = 5;
 /* SVM parameters. */
@@ -6,7 +7,7 @@ static svm_parameter param = {
     C_SVC,   /* svm_type     */
     RBF,  /* kernel_type  */
     3,       /* degree       */
-    1/DIM,   /* gamma        */
+    1/DIM_A,   /* gamma        */
     0.0,     /* coef0        */
     200,     /* cache_size   */
     1e-3,    /* eps          */
@@ -55,11 +56,111 @@ inline double dot_product_avx(const double* x, const float* y, const int dim) {
 #endif
 }
 
+double* model::fisher_train(
+    const double* data,
+    int size,
+    int dim,
+    const int* labels
+) {
+    double* mu0 = new double[dim]();
+    double* mu1 = new double[dim]();
+    int n0 = 0, n1 = 0;
+
+    for (int i = 0; i < size; ++i) {
+        const double* x = data + i * dim;
+        if (labels[i] == 0) {
+            for (int d = 0; d < dim; ++d)
+                mu0[d] += x[d];
+            n0++;
+        } else {
+            for (int d = 0; d < dim; ++d)
+                mu1[d] += x[d];
+            n1++;
+        }
+    }
+
+    if (n0 == 0 || n1 == 0)
+        return nullptr;
+
+    for (int d = 0; d < dim; ++d) {
+        mu0[d] /= n0;
+        mu1[d] /= n1;
+    }
+
+    double* Sw = new double[dim * dim]();
+    for (int i = 0; i < size; ++i) {
+        const double* x = data + i * dim;
+        const double* mu = (labels[i] == 0 ? mu0 : mu1);
+
+        for (int r = 0; r < dim; ++r) {
+            for (int c = 0; c < dim; ++c) {
+                Sw[r * dim + c] += (x[r] - mu[r]) * (x[c] - mu[c]);
+            }
+        }
+    }
+
+    int D = dim;
+    double* A = new double[D * 2 * D]();
+
+    for (int i = 0; i < D; ++i) {
+        for (int j = 0; j < D; ++j)
+            A[i * 2 * D + j] = Sw[i * D + j];
+        A[i * 2 * D + (D + i)] = 1.0;
+    }
+
+    for (int i = 0; i < D; ++i) {
+        double pivot = A[i * 2 * D + i];
+        if (std::fabs(pivot) < FLOAT_ZERO)
+            return nullptr;
+
+        for (int j = 0; j < 2 * D; ++j)
+            A[i * 2 * D + j] /= pivot;
+
+        for (int k = 0; k < D; ++k) {
+            if (k == i) continue;
+            double factor = A[k * 2 * D + i];
+            for (int j = 0; j < 2 * D; ++j)
+                A[k * 2 * D + j] -= factor * A[i * 2 * D + j];
+        }
+    }
+
+    double* Sw_inv = new double[D * D];
+    for (int i = 0; i < D; ++i)
+        for (int j = 0; j < D; ++j)
+            Sw_inv[i * D + j] = A[i * 2 * D + (D + j)];
+
+    double* w = new double[dim]();
+    for (int i = 0; i < dim; ++i) {
+        for (int j = 0; j < dim; ++j)
+            w[i] += Sw_inv[i * dim + j] * (mu1[j] - mu0[j]);
+    }
+
+    delete[] mu0;
+    delete[] mu1;
+    delete[] Sw;
+    delete[] A;
+    delete[] Sw_inv;
+
+    return w;
+}
+
+double fisher_score(
+    const double* data,
+    int dim,
+    const double* w
+) {
+    double score = 0.0;
+    for (int i = 0; i < dim; ++i)
+        score += w[i] * data[i];
+    return score;
+}
+
 bool model::init_models(const fs::path model_path) {
     fs::path models_path = model_path / "meta.bin";
     std::ifstream file(models_path, std::ios::binary);
 	if (!file.is_open()) {
-		std::cerr << "\nError: unable to open " << models_path << '\n';
+		std::cerr << "\nError: unable to open " << models_path << '\n'
+                  << "Please download the heuristic model file 'meta.bin' from [https://github.com/zetong-zhang/ZCURVE2026]\n";
 		return false;
 	}
     int chunk_size = N_PARAMS*sizeof(float);
@@ -73,26 +174,50 @@ bool model::init_models(const fs::path model_path) {
     return true;
 }
 
+double *model::fisher_model(int_array &seeds, bio::orf_array &orfs, std::mt19937_64 &ran_eng) {
+    const int n_seeds = (int) seeds.size();
+    double *params_seeds = new double[DIM_S*n_seeds*2];
+    int *labels = new int[n_seeds*2]();
+#ifdef _OPENMP
+    #pragma omp parallel for
+#endif
+    for (int i = 0; i < n_seeds; i ++) {
+        const int seqlen = orfs[seeds[i]].len;
+        char *orgn_seq = orfs[seeds[i]].pstr;
+        char *shuf_seq = new char[seqlen];
+        std::memcpy(shuf_seq, orgn_seq, seqlen*sizeof(char));
+        std::shuffle(shuf_seq, shuf_seq+seqlen, ran_eng);
+        encoding::encode(orgn_seq, seqlen, params_seeds+i*DIM_S, 3);
+        encoding::encode(shuf_seq, seqlen, params_seeds+(n_seeds+i)*DIM_S, 3);
+        labels[i] = 1;
+        delete[] shuf_seq;
+    }
+    double *fisher_coef = model::fisher_train(params_seeds, n_seeds*2, DIM_S, labels);
+    delete[] params_seeds;
+    delete[] labels;
+    return fisher_coef;
+}
+
 void model::mlp_predict(int index, double *data, int size, double *probas) {
     if (!size) return;
     /* scale data */
-    float *means = MODELS[index], *stds = means + DIM;
-    double *scaled = encoding::std_trans(data, size, DIM, means, stds);
+    float *means = MODELS[index], *stds = means + DIM_A;
+    double *scaled = encoding::std_trans(data, size, DIM_A, means, stds);
     /* mlp process */
-    float *model = stds + DIM; // first hidden w
-    float *hid_bs = model + N_HIDDEN*DIM;  // first hidden b
+    float *model = stds + DIM_A; // first hidden w
+    float *hid_bs = model + N_HIDDEN*DIM_A;  // first hidden b
     float *out_ws = hid_bs + N_HIDDEN;  // output w
 #ifdef _OPENMP
     #pragma omp parallel for
 #endif
     for (int i = 0; i < size; i ++) {
-        double *x = scaled + i*DIM;
+        double *x = scaled + i*DIM_A;
         // Hidden Layer (765, ) -> (200, )
         double hid_out[N_HIDDEN] = {0.0};
         for (int j = 0; j < N_HIDDEN; j ++) {
-            float *hid_w = model + j*DIM;
+            float *hid_w = model + j*DIM_A;
             // hid_out = hid_w * x + hid_b
-            hid_out[j] = dot_product_avx(x, hid_w, DIM);
+            hid_out[j] = dot_product_avx(x, hid_w, DIM_A);
             // ReLU activation function
             hid_out[j] = std::max(0.0, hid_out[j]+(double)hid_bs[j]);
         }
@@ -107,10 +232,9 @@ void model::mlp_predict(int index, double *data, int size, double *probas) {
 }
 
 bool model::train_predict(double *params, int size, double *init_score, double *score) {
-    static const double up_proba = 0.6;
     svm_problem prob;
-    double mins[DIM], maxs[DIM];
-    for (int j = 0; j < DIM; ++j) {
+    double mins[DIM_A], maxs[DIM_A];
+    for (int j = 0; j < DIM_A; ++j) {
         mins[j] =  std::numeric_limits<double>::infinity();
         maxs[j] = -std::numeric_limits<double>::infinity();
     }
@@ -122,16 +246,16 @@ bool model::train_predict(double *params, int size, double *init_score, double *
     prob.l = 0;
     for (int i = 0; i < size; ++i) {
         double s = init_score[i];
-        if (s > up_proba || s < 1e-4) {
-            double* row = params + i*DIM;
+        if (s > UP_PROBA || (s < 1e-4 && s > FLOAT_ZERO)) {
+            double* row = params + i*DIM_A;
             train_indices.push_back(i);
 
-            for (int j = 0; j < DIM; ++j) {
+            for (int j = 0; j < DIM_A; ++j) {
                 double v = row[j];
                 if (v < mins[j]) mins[j] = v;
                 if (v > maxs[j]) maxs[j] = v;
             }
-            if (s > up_proba) { prob.y[prob.l] = 1.0; n_pos ++; } 
+            if (s > UP_PROBA) { prob.y[prob.l] = 1.0; n_pos ++; } 
             else { prob.y[prob.l] = -1.0; n_neg ++; }
             ++prob.l;
         }
@@ -143,17 +267,17 @@ bool model::train_predict(double *params, int size, double *init_score, double *
 #ifdef _OPENMP
     #pragma omp parallel for
 #endif
-    for (int j = 0; j < DIM; ++j) {
+    for (int j = 0; j < DIM_A; ++j) {
         double intv = maxs[j] - mins[j];
         if (intv == 0.0) {
             for (int i = 0; i < size; ++i)
-                params[i*DIM + j] = 0.0;
+                params[i*DIM_A + j] = 0.0;
         } else {
             double inv_intv = 1.0 / intv;
             double minv = mins[j];
 
             for (int i = 0; i < size; ++i) {
-                double* row = params + i*DIM;
+                double* row = params + i*DIM_A;
                 row[j] = (row[j] - minv) * inv_intv;
             }
         }
@@ -162,10 +286,10 @@ bool model::train_predict(double *params, int size, double *init_score, double *
     // calculate gamma
     double sum = 0.0;
     double sqsum = 0.0;
-    const int total = prob.l * DIM;
+    const int total = prob.l * DIM_A;
     for (int i = 0; i < prob.l; ++i) {
-        double* row = params + train_indices[i]*DIM;
-        for (int j = 0; j < DIM; ++j) {
+        double* row = params + train_indices[i]*DIM_A;
+        for (int j = 0; j < DIM_A; ++j) {
             double v = row[j];
             sum += v;
             sqsum += v * v;
@@ -174,22 +298,21 @@ bool model::train_predict(double *params, int size, double *init_score, double *
     double mean = sum / total;
     double mean_sq = mean * mean;
     double var = (sqsum / total) - mean_sq;
-    if (var <= 0) var = 1e-12;
-    param.gamma = 1.0 / (DIM * var);
-    
+    if (var <= 0) var = FLOAT_ZERO;
+    param.gamma = 1.0 / (DIM_A * var);
     // train svm model
     prob.x = new double *[prob.l];
     for (int i = 0; i < prob.l; i ++)
-        prob.x[i] = params + train_indices[i]*DIM;
+        prob.x[i] = params + train_indices[i]*DIM_A;
     svm_model *model = svm_train(&prob, &param);
     if (!model) return false;
-    
+
     // predict scores
 #ifdef _OPENMP
     #pragma omp parallel for schedule(guided)
 #endif
     for (int i = 0; i < size; i ++)
-        score[i] = svm_predict_score(model, params + i*DIM);
+        score[i] = svm_predict_score(model, params + i*DIM_A);
     svm_free_and_destroy_model(&model);
 
     delete[] prob.x;

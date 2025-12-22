@@ -2,7 +2,7 @@
  * @brief       Model functions for Z-curve.
  * 
  * @author      Zetong Zhang, Yan Lin, Feng Gao
- * @version     0.0.5-SNAPSHOT
+ * @version     0.0.6-SNAPSHOT
  * @date        2025-11-30
  * @license     GNU GPLv3
  * @contact     ylin@tju.edu.cn | fgao@tju.edu.cn
@@ -16,9 +16,14 @@
 #define N_HIDDEN  200
 // The number of total params in a mlp model
 #define N_PARAMS  154931
+// The upper limit for threshold of seed ORFs
+#define UP_PROBA  0.9
 
 #include <iostream>
 #include <fstream>
+#include <random>
+#include <cstring>
+#include <algorithm>
 #include "Encoding.hpp"
 #include "svm.h"
 
@@ -46,6 +51,8 @@ namespace model {
      * @return              True if the training and prediction are successful.
      */
     bool train_predict(double *params, int size, double *init_score, double *score);
+    double* fisher_train(const double* data, int size, int dim, const int* labels);
+    double *fisher_model(int_array &seeds, bio::orf_array &orfs, std::mt19937_64 &ran_eng);
 }
 
 #endif
