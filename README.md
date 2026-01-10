@@ -1,19 +1,19 @@
 # ZCURVE 2026
-A Prokaryotic Protein-coding Gene Recognition System  
+A Prokaryotic Protein-coding Gene Recognition System Based On The Z-curve Theory
 
 ![Software Features](./features.png)
 ## Setup
 ### Windows/Linux (x86_64)
 Download the latest precompiled binary file from the [release page](https://github.com/zetong-zhang/ZCURVE2026/releases), and decompress it to the directory of your choice.
-
-*Note: The model file `meta.bin` is not included in the release package. You need to download it manually from the [homepage](https://github.com/zetong-zhang/ZCURVE2026) and place it in the same directory as the executable binary file.*
 ### Other Operating Systems
 Download and compile the source code yourself.
+
 ```bash
-g++ -DZLIB -o zcurve -fopenmp -mavx -mfma Main.cpp BioIO.cpp BioUtil.cpp Encoding.cpp Model.cpp svm.cpp -lz -O2
+objcopy --input binary --output elf64-x86-64 --binary-architecture i386:x86-64 meta.bin meta.bin.o
+g++ -DZLIB -o zcurve -fopenmp -mavx -mfma meta.bin.o Main.cpp BioIO.cpp BioUtil.cpp Encoding.cpp Model.cpp svm.cpp -static -lz -O3
 ```
 *Note:*  
-(1) If your system doesn't have zlib installed, or you just don't want to use zlib, just remove the `-DZLIB` option;   
+(1) If your system doesn't have zlib installed, or you just don't want to use zlib, just remove the `-DZLIB` and `-lz` option;   
 (2) If you don't want to use AVX and FMA function, just remove the `-mavx` and `-mfma` option.
 
 ## Usage
@@ -52,7 +52,7 @@ Write protein translations to the selected file.
 * `-d, --fna`  
 Write nucleotide sequences of genes to the selected file.
 
-#### ORFfinder Options  
+#### Gene-Finder Options  
 * `-g, --table`  
 Specify a translation table to use. Table 1 (Standard), 4 (Mycoplasma & Spiroplasma) and 11 (Bacteria & Archaea) are supported. Default to use table 11.
 
@@ -62,7 +62,6 @@ Specify the mininum length of open reading frames. 90 nt by default.
 * `-c, --circ`  
 Treat topology as circular for all the input sequences.
 
-#### Prediction Options  
 * `-b, --bypass`  
 Bypass semi-supervised SVM training. For extremely short genomic sequences, this option will be enabled forcibly. For sequences of mixed species, we recommend enabling this option, as the SVM is only suitable for training on a single genome.
 

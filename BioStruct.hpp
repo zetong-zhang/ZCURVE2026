@@ -2,7 +2,7 @@
  * @brief       Bioinformatics data structures. 
  * 
  * @author      Zetong Zhang, Yan Lin, Feng Gao
- * @version     0.0.6-SNAPSHOT
+ * @version     0.1.0
  * @date        2025-11-30
  * @license     GNU GPLv3
  * @contact     ylin@tju.edu.cn | fgao@tju.edu.cn
@@ -12,7 +12,6 @@
 
 #include <string>
 #include <vector>
-#include <filesystem>
 
 /* utility array types. */
 typedef std::vector<int>          int_array;
@@ -53,13 +52,20 @@ namespace bio {
         host(host), host_len(host_len),starts(std::move(starts)),types(std::move(types)), 
         len(len), t_start(t_start),end(end),strand(strand),pstr(pstr),gc_frac(gc_frac){}
     } orf;
-
+    /* island region list node */
+    typedef struct region {
+        region *next;  // next region node
+        int start, end;     // start and end point of region
+        region(int start, int end) {
+            this->next = nullptr;
+            this->start = start;
+            this->end = end;
+        }
+    } region;
     /*  scaffold record array type */
     typedef std::vector<record> record_array;
     /*  ORF array type */
     typedef std::vector<orf>    orf_array;
 }
-
-namespace fs = std::filesystem;
 
 #endif

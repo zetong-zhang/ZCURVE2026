@@ -133,13 +133,39 @@ static op_type check_overprint(const bio::orf &a, const bio::orf &b) {
     return op_type::DISJOINT;
 }
 
+char prob_to_iupac(double *probs) {
+    static const std::unordered_map<std::string, char> iupac = {
+        {"A", 'A'}, {"C", 'C'}, {"G", 'G'}, {"T", 'T'},
+        {"AG", 'R'}, {"CT", 'Y'}, {"CG", 'S'}, {"AT", 'W'},
+        {"GT", 'K'}, {"AC", 'M'},
+        {"CGT", 'B'}, {"AGT", 'D'}, {"ACT", 'H'}, {"ACG", 'V'},
+        {"ACGT", 'N'}
+    };
+    std::string bases("ACGT");
+    std::vector<std::pair<double, char>> v;
+    for (int i = 0; i < 4; ++i) if (probs[i] > 0.0) v.emplace_back(probs[i], bases[i]);
+    if (v.empty()) return 'N';
+    std::sort(v.begin(), v.end(), [](const auto& a, const auto& b) { return a.first > b.first;});
+    double cum = 0.0;
+    std::string key;
+    for (const auto& p : v) {
+        cum += p.first;
+        key += p.second;
+        if (cum >= 0.6) break;
+    }
+    std::sort(key.begin(), key.end(), [bases](char a, char b) { return bases.find(a) < bases.find(b);});
+    auto it = iupac.find(key);
+    return (it != iupac.end()) ? it->second : 'N';
+}
+
 void bio_util::get_orfs(
     bio::record &scaffold,
     const str_array &starts,
     const str_array &stops,
     const int minlen,
     const bool circ,
-    bio::orf_array &orfs
+    bio::orf_array &orfs,
+    int max_alt
 ) {
     char *genome = (char *) scaffold.sequence.c_str();
     int length = (int) scaffold.sequence.size();
@@ -159,13 +185,17 @@ void bio_util::get_orfs(
             // search for standard ORFs
             for (ps = phase; ps < length; ps += 3) {
                 int match = match_codon(genome+ps, starts);
-                if (match > -1 && slocs.size() < 6) {
+                if (match > -1 && slocs.size() < max_alt) {
                     slocs.push_back(ps);
                     types.push_back(match);
                 } else if (slocs.size() && match_codon(genome+ps, stops) > -1) {
                     int end = ps + 3;
                     int t_start = refine_start(slocs, types);
                     int seqlen = end - t_start;
+                    if (seqlen < minlen) {
+                        t_start = slocs.at(0);
+                        seqlen = end - t_start;
+                    }
                     if (seqlen >= minlen) {
                         char *pstr = genome + t_start;
                         double gc_frac = gc_fraction(pstr, seqlen);
@@ -185,6 +215,10 @@ void bio_util::get_orfs(
                 int end = ps; if (ps > length) end = length;
                 int t_start = refine_start(slocs, types);
                 int seqlen = end - t_start;
+                if (seqlen < minlen) {
+                    t_start = slocs.at(0);
+                    seqlen = end - t_start;
+                }
                 if (seqlen >= minlen || circ) {
                     char *pstr = genome + t_start;
                     double gc_frac = gc_fraction(pstr, seqlen);

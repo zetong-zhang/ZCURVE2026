@@ -1,4 +1,6 @@
 #include "Encoding.hpp"
+/* const value for calculate PCC */
+#define PCC_CONST 3.4641016151
 // offset constants
 static const int    X = 0, Y = 1, Z = 2, PHASE = 3;
 // float constants
@@ -48,7 +50,6 @@ static double ONE_HOT[][4] =
     {0, 0, 0, 1}, {W, W, W, 0}, {V, 0, 0, V}, {0, 0, 0, 0},
     {0, 0, V, V}, {1, 0, 0, 0}
 };
-
 /* 
  * Map for converting ASCII chars into Z-curve coordinates
  *
@@ -205,45 +206,11 @@ void encoding::encode_orfs(bio::orf_array &orfs, double *data) {
     }
 }
 
-double *encoding::std_scale(
-    double *data, 
-    int n, int dim,
-    double *means,
-    double *stds
-) {
-    double *cache = new double[n*dim];
-    for (int i = 0; i < n; i++) {
-        for (int j = 0; j < dim; j++) {
-            means[j] += data[i*dim+j];
-        }
-    }
-    for (int j = 0; j < dim; j++) means[j] /= n;
-    for (int i = 0; i < n; i++) {
-        for (int j = 0; j < dim; j++) {
-            double diff = data[i*dim+j] - means[j];
-            stds[j] += diff * diff;
-        }
-    }
-    for (int j = 0; j < dim; j++) {
-        stds[j] = std::sqrt(stds[j] / n);
-        // 改这行代码时冯鑫师姐在唱: "忍不住化身一条固执的鱼~"
-        if (stds[j] < 1E-5) stds[j] = 1.0;
-    }
-    for (int i = 0; i < n; i++) {
-        int j;
-        double *p_node = cache + i*dim;
-        for (j = 0; j < dim; j++, p_node ++) {
-            *p_node = (data[i*dim+j]-means[j])/stds[j];
-        }
-    }
-    return cache;
-}
-
 double *encoding::std_trans(
     double *data, 
     int n, int dim,
-    float *means,
-    float *stds
+    const float *means,
+    const float *stds
 ) {
     double *cache = new double[n*dim];
     for (int i = 0; i < n; i++) {
@@ -319,4 +286,99 @@ double encoding::z_prime_curve(char *seq, int len, double *params) {
         params[i] -= kp * i;
     
     return kp;
+}
+
+void encoding::z_curve(char *seq, int len, double *params) {
+    static double (*prime_curve[3])(char *, int, double *) = {
+        x_prime_curve, y_prime_curve, z_prime_curve
+    };
+    double *p_data = params;
+    for (int i = 0; i < 3; i ++) {
+        (*prime_curve[i])(seq, len, p_data);
+        p_data += len;
+    }
+}
+
+int encoding::find_island(
+    double *values, 
+    int length,
+    int window,
+    double min_pcc,
+    bio::region *root
+) {
+    // Window size-related constants
+    const double lxx = sqrt(window);
+    const int maxIndex = window - 1;
+    // Values for PCC calculation
+    double xySum = 0.0, ySum = 0.0, y2Sum = 0.0;
+
+    // Initialization of sliding window
+    for (int i = 0; i < window; i ++) {
+        xySum += i * (double) values[i];
+        ySum += (double) values[i];
+        y2Sum += (double) values[i] * values[i]; 
+    }
+
+    // Initialization of PCC calculating
+    double lxy = xySum / maxIndex - ySum / 2;
+    double lyy = sqrt(y2Sum - ySum * ySum / window);
+    double pcc = PCC_CONST * lxy / lyy / lxx;
+    
+    bool recording = pcc > min_pcc; // Recording switch
+    // The start point of a new island and count of islands
+    int start = 0, count = 0;
+
+    bio::region *nextNode = root;
+    const int stop = length - window;
+    for (int winStart = 0, winEnd = window; winStart < stop; winStart ++, winEnd ++) {
+        // Update the sum values of the next sliding window
+        ySum += values[winEnd] - values[winStart];
+        xySum += window * values[winEnd] - ySum;
+        y2Sum += values[winEnd] * values[winEnd] - values[winStart] * values[winStart];
+
+        // Calculate the PCC value of the next sliding window
+        lxy = xySum / maxIndex - ySum / 2;
+        lyy = sqrt(y2Sum - ySum * ySum / window);
+        pcc = PCC_CONST * lxy / lyy / lxx;
+
+        if (recording && pcc <= min_pcc) {
+            nextNode->next = new bio::region(start, winEnd + 1);
+            nextNode = nextNode->next;
+            recording = false;
+            count ++;
+        } else if (!recording && pcc > min_pcc) {
+            start = winStart + 1;
+            recording = start > nextNode->end;
+            if (!recording) nextNode->end = winEnd + 1;
+        }
+    }
+
+    // Finally operation
+    if (recording) {
+        nextNode->next = new bio::region(start, length);
+        count ++;
+    }
+
+    // Refine
+    nextNode = root;
+    int minPoint, maxPoint, endPoint;
+    float minValue, maxValue;
+    while(nextNode->next) {
+        nextNode = nextNode->next;
+        endPoint = nextNode->end;
+        minPoint = nextNode->start, minValue = values[minPoint];
+        maxPoint = nextNode->end, maxValue = values[maxPoint];
+        
+        for (int i = minPoint + 1; i < endPoint; i ++) {
+            if (values[i] > maxValue)
+                maxPoint = i, maxValue = values[i];
+            else if (values[i] < minValue)
+                minPoint = i, minValue = values[i];
+        }
+        
+        nextNode->start = minPoint;
+        nextNode->end = maxPoint;
+    }
+
+    return count;
 }

@@ -2,7 +2,7 @@
  * @brief   Utility functions for bioinformatics.
  * 
  * @author      Zetong Zhang, Yan Lin, Feng Gao
- * @version     0.0.6-SNAPSHOT
+ * @version     0.1.0
  * @date        2025-11-30
  * @license     GNU GPLv3
  * @contact     ylin@tju.edu.cn | fgao@tju.edu.cn
@@ -15,6 +15,8 @@
 #include <vector>
 #include <map>
 #include <iostream>
+#include <unordered_map>
+#include <algorithm>
 #include "BioStruct.hpp"
 
 /*  codon to amino acid map */
@@ -49,15 +51,16 @@ namespace bio_util {
     /**
      * @brief   get ORFs in a nucleotide sequence.
      * 
-     * @param   record  scaffold record.
-     * @param   starts  start codon array.
-     * @param   stops   stop codon array.
-     * @param   circ    treat as circular.
-     * @param   minlen  minimum length of the ORF.
-     * @param   orfs    ORF array to be written.
+     * @param   record    scaffold record.
+     * @param   starts    start codon array.
+     * @param   stops     stop codon array.
+     * @param   circ      treat as circular.
+     * @param   minlen    minimum length of the ORF.
+     * @param   orfs      ORF array to be written.
+     * @param   max_alt   maxinum number of alter start codon
      */
     void  get_orfs(bio::record &record, const str_array &starts, const str_array &stops, 
-        const int minlen, const bool circ, bio::orf_array &orfs);
+        const int minlen, const bool circ, bio::orf_array &orfs, int max_alt);
     /**
      * @brief   translate a nucleotide sequence to a protein sequence.
      * 

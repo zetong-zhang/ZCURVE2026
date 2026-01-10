@@ -2,7 +2,7 @@
  * @brief       Model functions for Z-curve.
  * 
  * @author      Zetong Zhang, Yan Lin, Feng Gao
- * @version     0.0.6-SNAPSHOT
+ * @version     0.1.0
  * @date        2025-11-30
  * @license     GNU GPLv3
  * @contact     ylin@tju.edu.cn | fgao@tju.edu.cn
@@ -23,17 +23,17 @@
 #include <fstream>
 #include <random>
 #include <cstring>
+#include <iomanip>
 #include <algorithm>
 #include "Encoding.hpp"
 #include "svm.h"
 
 namespace model {
     /**
-     * @brief               Initialize the mlp models from a binary file.
-     * @param model_path    The path to the binary file.
+     * @brief               Initialize the mlp models from embedded source.
      * @return              True if the models are successfully initialized.
      */
-    bool init_models(const fs::path model_path);
+    bool init_models();
     /**
      * @brief           Predict the output of a mlp model.
      * @param model_id  The index of the mlp model.
@@ -51,8 +51,7 @@ namespace model {
      * @return              True if the training and prediction are successful.
      */
     bool train_predict(double *params, int size, double *init_score, double *score);
-    double* fisher_train(const double* data, int size, int dim, const int* labels);
-    double *fisher_model(int_array &seeds, bio::orf_array &orfs, std::mt19937_64 &ran_eng);
+    bool GS_Finder(bio::orf_array &seeds, int flanking, std::mt19937_64 &ran_eng, bool QUIET);
 }
 
 #endif

@@ -4,19 +4,12 @@
  *                                                                 *    
  *      @copyright:   (C) 2003-2026 TUBIC, Tianjin University      *
  *      @author:      Zetong Zhang, Yan Lin, Feng Gao              *
- *      @version:     0.0.6-SNAPSHOT                               *
+ *      @version:     0.1.0                                        *
  *      @date:        2025-11-30                                   *
  *      @license:     GNU GPLv3                                    *
  *      @contact:     ylin@tju.edu.cn | fgao@tju.edu.cn            *
  *                                                                 *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
-
-#ifdef _WIN32
-    #include <windows.h>
-#else
-    #include <unistd.h>
-    #include <limits.h>
-#endif
 
 #include <omp.h>
 #include <chrono>
@@ -32,13 +25,16 @@
 static bool QUIET = false;
 /* set the random seed */
 static int RAN_SEED = 32522;
-/* get the home path */
-static fs::path get_home_path();
 
 int main(int argc, char *argv[]) {
     auto start_t = std::chrono::system_clock::now();  // program start time
-    auto exe_name = fs::path(argv[0]).filename().string();  // executable file name
-    fs::path home_path = get_home_path();  // home path
+    std::string exe_name;  // executable file name
+    {
+        std::string argv0(argv[0]);
+        size_t pos = argv0.find_last_of("/\\");
+        if (pos == std::string::npos) exe_name = argv0;
+        else exe_name = argv0.substr(pos + 1);
+    }
     std::mt19937_64 ran_eng(RAN_SEED);  // random engine
     
     /* set and parse parameters */
@@ -70,22 +66,29 @@ int main(int argc, char *argv[]) {
         ("d,fna",      "Write nucleotide sequences of genes to the selected file.",
          cxxopts::value<std::string>());
     
-    /* orf-finder parameters */
-    options.add_options("ORFfinder")
-        ("g,table",     "Specify a translation table to use.",
+    /* gene-finder parameters */
+    options.add_options("Gene-Finder")
+        ("g,table",   "Specify a translation table to use.",
          cxxopts::value<uint32_t>()->default_value("11"))
 
-        ("l,minlen",    "Specify the mininum length of ORFs.",
+        ("l,minlen",  "Specify the mininum length of ORFs.",
          cxxopts::value<uint32_t>()->default_value("90"))
 
-        ("c,circ",      "Treat topology as circular.");
+        ("c,circ",    "Treat topology as circular.")
     
-    /* prediction parameters */
-    options.add_options("Prediction")
-        ("b,bypass",   "Bypass semi-supervised SVM training.")
+        ("b,bypass",  "Bypass semi-supervised SVM training.")
 
-        ("s,thres",    "Specify putative gene score threshold.",
+        ("s,thres",   "Specify putative gene score threshold.",
          cxxopts::value<double>()->default_value("0"));
+    
+    // options.add_options("GS-Finder")
+    //     ("L,longest",  "Bypass GS-Finder and output longest ORFs")
+
+    //     ("A,alter",    "Maxinum number of alternative start sites in an ORF",
+    //      cxxopts::value<uint32_t>()->default_value("6"))
+        
+    //     ("F,flanking", "Upstream flanking width for searching RBS regions",
+    //      cxxopts::value<uint32_t>()->default_value("99"));
     
     cxxopts::ParseResult args;
     try {
@@ -106,7 +109,6 @@ int main(int argc, char *argv[]) {
                   << "- - - - - - - - - - - - - - - - - - - - - - - - - - -"
                   << options.help() << "\nExample: " << exe_name << ' '
                   << "-i example.fa -o example.gff -c -f gff               \n";
-        
         return 0;
     }
 
@@ -162,13 +164,8 @@ int main(int argc, char *argv[]) {
     std::string input = "-";
     if (args.count("input")) input = args["input"].as<std::string>();
     bio::record_array scaffolds(0);
-    if (!bio_io::read_source(input, scaffolds)) {
-        if (input == "example.fa") {
-            auto example = (home_path / "example.fa").string();
-            if(bio_io::read_source(example, scaffolds)) goto CHECK;
-        } return 1;
-    }
-    CHECK: if (!scaffolds.size()) {
+    if (!bio_io::read_source(input, scaffolds)) return 1;
+    if (!scaffolds.size()) {
         std::cerr << "Error: no valid sequence was read\n";
         return 0;
     }
@@ -179,6 +176,7 @@ int main(int argc, char *argv[]) {
 
     /* extract all the orfs */
     bool circ = (bool) args.count("circ");
+    // int max_alt = (int) args["alter"].as<uint32_t>();
     bio::orf_array orfs;
     for (int i = 0; i < scaffolds.size(); i ++) {
         const auto sublen = scaffolds[i].sequence.length();
@@ -186,7 +184,7 @@ int main(int argc, char *argv[]) {
         gc_cont += bio_util::gc_count(scaffolds[i].sequence.c_str(), sublen);
 
         if (sublen >= minlen) {
-            bio_util::get_orfs(scaffolds[i], starts, stops, minlen, circ, orfs);
+            bio_util::get_orfs(scaffolds[i], starts, stops, minlen, circ, orfs, 6);
         } else if (!QUIET) {
             std::cerr << "Warning: skip " << scaffolds[i].name << " (too short)\n";
         }
@@ -221,7 +219,8 @@ int main(int argc, char *argv[]) {
     encoding::encode_orfs(orfs, params);
 
     /* load pre-trained models and calculate scores */
-    if (!model::init_models(home_path)) return 1;
+    if (!model::init_models()) return 1;
+    if(!QUIET) std::cerr << "Loaded Model:" << std::setw(41) << "Prokaryota\n";
     double *probas = new double[n_orfs]();
     int off = 0, num_seeds = 0;
     if (!QUIET) std::cerr << "Initialization:" << std::setw(38) << "0 %";
@@ -231,12 +230,9 @@ int main(int argc, char *argv[]) {
         if (!QUIET) std::cerr << "\rInitialization:" << std::setw(36) << (int)(i*1.67) << " %";
         off += gc_intv_count[i];
     }
-    int_array seeds;
-    for (int i=0;i<n_orfs;i++) if (probas[i]>UP_PROBA) { seeds.push_back(i); num_seeds ++; }
-    if (!QUIET) std::cerr << "\nNumber of Seed ORFs: " << std::setw(32) << seeds.size() << "\n";
     
     /* train rbs-svm models */
-    if (!QUIET) std::cerr << "Training Model ...";
+    if (!QUIET) std::cerr << "\nTraining Model ...";
     double *scores = new double[n_orfs]();
     bool training = !((bool) args.count("bypass"));
     if (training) {
@@ -257,6 +253,17 @@ int main(int argc, char *argv[]) {
         return orf.score > thres; 
     });
     if (!QUIET) std::cerr << "Number of Putative Genes:" << std::setw(28) << num_putative << "\n";
+
+    /* relocate gene starts */
+    // if (args.count("longest")) {
+    //     int flanking = (int) args["flanking"].as<uint32_t>();
+    //     if (!QUIET) {
+    //         std::cerr << "\nPROTEIN-CODING GENE START RELOCATOR OF GS-FINDER 2026\n\n"
+    //                   << "Maxinum Alter Starts: " << std::setw(31) << max_alt << "\n"
+    //                   << "Flanking Width: " << std::setw(34) << flanking << " nt\n";
+    //     }
+    //     bool flag = model::GS_Finder(putative, flanking, ran_eng, QUIET);
+    // }
 
     /* write results to output */
     std::string output = "-";
@@ -291,20 +298,4 @@ int main(int argc, char *argv[]) {
         auto seconds = duration.count() / 1000.0;
         std::cerr << "\nFinished in " << std::fixed << std::setprecision(3) << seconds << " s\n";
     }
-}
-
-static fs::path get_home_path() {
-#ifdef _WIN32
-    wchar_t buffer[MAX_PATH];
-    GetModuleFileNameW(NULL, buffer, MAX_PATH);
-    return fs::path(buffer).parent_path();
-#else
-    char buffer[PATH_MAX];
-    ssize_t len = readlink("/proc/self/exe", buffer, sizeof(buffer)-1);
-    if (len != -1) {
-        buffer[len] = '\0';
-        return fs::path(buffer).parent_path();
-    }
-    return fs::current_path();
-#endif
 }

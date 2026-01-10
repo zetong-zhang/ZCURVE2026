@@ -1,4 +1,6 @@
 #include "Model.hpp"
+extern const unsigned char _binary_meta_bin_start[];
+extern const unsigned char _binary_meta_bin_end[];
 #define FLOAT_ZERO 1E-25
 // Minimum set size for SVM training.
 static const int MIN_SET_SIZE = 5;
@@ -21,7 +23,9 @@ static svm_parameter param = {
     false    /* probability  */
 };
 /* Model parameters. */
-float MODELS[N_MODELS][N_PARAMS];
+const float *MODELS[N_MODELS];
+/* Start codon frequency (ATG:GTG:TTG:CTG) */
+double START_FREQ[] = { 0.78, 0.14, 0.07, 0.01 };
 /**
  * @brief           Calculate dot product of two vectors using AVX instructions.
  * @param x         The first vector.
@@ -56,7 +60,7 @@ inline double dot_product_avx(const double* x, const float* y, const int dim) {
 #endif
 }
 
-double* model::fisher_train(
+static double* fisher_train(
     const double* data,
     int size,
     int dim,
@@ -79,7 +83,7 @@ double* model::fisher_train(
         }
     }
 
-    if (n0 == 0 || n1 == 0)
+    if (n0 < MIN_SET_SIZE || n1 < MIN_SET_SIZE)
         return nullptr;
 
     for (int d = 0; d < dim; ++d) {
@@ -155,26 +159,29 @@ double fisher_score(
     return score;
 }
 
-bool model::init_models(const fs::path model_path) {
-    fs::path models_path = model_path / "meta.bin";
-    std::ifstream file(models_path, std::ios::binary);
-	if (!file.is_open()) {
-		std::cerr << "\nError: unable to open " << models_path << '\n'
-                  << "Please download the heuristic model file 'meta.bin' from [https://github.com/zetong-zhang/ZCURVE2026]\n";
-		return false;
-	}
-    int chunk_size = N_PARAMS*sizeof(float);
-    for (int i = 0; i < N_MODELS; i ++) {
-    	file.read((char*)MODELS[i], chunk_size);
-		if (!file || file.gcount() != chunk_size) {
-			std::cerr << "\nError: data corruption in " << models_path << "\n";
-			return false;
-		}
-	}
+bool model::init_models() {
+    const size_t expected_size = 
+        N_MODELS * N_PARAMS * sizeof(float);
+
+    const size_t actual_size =
+        _binary_meta_bin_end - _binary_meta_bin_start;
+
+    if (actual_size != expected_size || 
+        reinterpret_cast<uintptr_t>(_binary_meta_bin_start) %
+        alignof(float) != 0) 
+    {
+        std::cerr << "Error: failed to load embedded model data\n";
+        return false;
+    }
+
+    const float* base = reinterpret_cast<const float*>(_binary_meta_bin_start);
+
+    for (int i = 0; i < N_MODELS; ++i) MODELS[i] = base + i * N_PARAMS;
+
     return true;
 }
 
-double *model::fisher_model(int_array &seeds, bio::orf_array &orfs, std::mt19937_64 &ran_eng) {
+static double *fisher_model(bio::orf_array &seeds, std::mt19937_64 &ran_eng) {
     const int n_seeds = (int) seeds.size();
     double *params_seeds = new double[DIM_S*n_seeds*2];
     int *labels = new int[n_seeds*2]();
@@ -182,8 +189,8 @@ double *model::fisher_model(int_array &seeds, bio::orf_array &orfs, std::mt19937
     #pragma omp parallel for
 #endif
     for (int i = 0; i < n_seeds; i ++) {
-        const int seqlen = orfs[seeds[i]].len;
-        char *orgn_seq = orfs[seeds[i]].pstr;
+        const int seqlen = seeds[i].len;
+        char *orgn_seq = seeds[i].pstr;
         char *shuf_seq = new char[seqlen];
         std::memcpy(shuf_seq, orgn_seq, seqlen*sizeof(char));
         std::shuffle(shuf_seq, shuf_seq+seqlen, ran_eng);
@@ -192,21 +199,39 @@ double *model::fisher_model(int_array &seeds, bio::orf_array &orfs, std::mt19937
         labels[i] = 1;
         delete[] shuf_seq;
     }
-    double *fisher_coef = model::fisher_train(params_seeds, n_seeds*2, DIM_S, labels);
+    double *fisher_coef = fisher_train(params_seeds, n_seeds*2, DIM_S, labels);
     delete[] params_seeds;
     delete[] labels;
     return fisher_coef;
 }
 
+bool model::GS_Finder(bio::orf_array &seeds, int flanking, std::mt19937_64 &ran_eng, bool QUIET) {
+    int n_alter = 0, i;
+    for (i = 0; i < seeds.size(); i ++) n_alter += seeds[i].starts.size();
+    std::cerr << "Total Alter Starts: " << std::setw(33) << n_alter << "\n";
+
+    /* plot z-curves for the upstream flanking regions */
+    int plot_range = flanking*2;
+    double *curves = new double[plot_range*3]();
+    for (i = 0; i < seeds.size(); i ++) {
+        int up_start = seeds[i].t_start - flanking;
+        int up_end = seeds[i].t_start + flanking;
+        if (up_start < 0 || up_end > seeds[i].host_len) continue;
+        char *pstr = seeds[i].pstr - flanking;
+        encoding::z_curve(pstr, plot_range, curves);
+    }
+    return false;
+}
+
 void model::mlp_predict(int index, double *data, int size, double *probas) {
     if (!size) return;
     /* scale data */
-    float *means = MODELS[index], *stds = means + DIM_A;
+    const float *means = MODELS[index], *stds = means + DIM_A;
     double *scaled = encoding::std_trans(data, size, DIM_A, means, stds);
     /* mlp process */
-    float *model = stds + DIM_A; // first hidden w
-    float *hid_bs = model + N_HIDDEN*DIM_A;  // first hidden b
-    float *out_ws = hid_bs + N_HIDDEN;  // output w
+    const float *model = stds + DIM_A; // first hidden w
+    const float *hid_bs = model + N_HIDDEN*DIM_A;  // first hidden b
+    const float *out_ws = hid_bs + N_HIDDEN;  // output w
 #ifdef _OPENMP
     #pragma omp parallel for
 #endif
@@ -215,7 +240,7 @@ void model::mlp_predict(int index, double *data, int size, double *probas) {
         // Hidden Layer (765, ) -> (200, )
         double hid_out[N_HIDDEN] = {0.0};
         for (int j = 0; j < N_HIDDEN; j ++) {
-            float *hid_w = model + j*DIM_A;
+            const float *hid_w = model + j*DIM_A;
             // hid_out = hid_w * x + hid_b
             hid_out[j] = dot_product_avx(x, hid_w, DIM_A);
             // ReLU activation function
