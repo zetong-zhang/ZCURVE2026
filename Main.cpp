@@ -23,8 +23,6 @@
 
 /* run the program in quiet mode */
 static bool QUIET = false;
-/* set the random seed */
-static int RAN_SEED = 32522;
 
 int main(int argc, char *argv[]) {
     auto start_t = std::chrono::system_clock::now();  // program start time
@@ -35,7 +33,6 @@ int main(int argc, char *argv[]) {
         if (pos == std::string::npos) exe_name = argv0;
         else exe_name = argv0.substr(pos + 1);
     }
-    std::mt19937_64 ran_eng(RAN_SEED);  // random engine
     
     /* set and parse parameters */
     cxxopts::Options options(exe_name);
@@ -81,14 +78,14 @@ int main(int argc, char *argv[]) {
         ("s,thres",   "Specify putative gene score threshold.",
          cxxopts::value<double>()->default_value("0"));
     
-    // options.add_options("GS-Finder")
-    //     ("L,longest",  "Bypass GS-Finder and output longest ORFs")
+    options.add_options("GS-Finder")
+        ("L,longest",  "Bypass GS-Finder and output longest ORFs")
 
-    //     ("A,alter",    "Maxinum number of alternative start sites in an ORF",
-    //      cxxopts::value<uint32_t>()->default_value("6"))
+        ("A,alter",    "Maxinum number of alternative start sites in an ORF",
+         cxxopts::value<uint32_t>()->default_value("6"))
         
-    //     ("F,flanking", "Upstream flanking width for searching RBS regions",
-    //      cxxopts::value<uint32_t>()->default_value("99"));
+        ("R,rbs",      "Write RBS consensus to the selected file",
+         cxxopts::value<uint32_t>());
     
     cxxopts::ParseResult args;
     try {
@@ -130,7 +127,7 @@ int main(int argc, char *argv[]) {
     
     /* initialize translation table and start/stop codon list */
     uint32_t table_code = args["table"].as<uint32_t>();
-    str_array starts{ "ATG", "GTG", "TTG" };
+    str_array starts{ "ATG", "GTG" };
     str_array stops{ "TAA", "TAG", "TGA" };
 
     if (table_code == 1) {
@@ -166,8 +163,8 @@ int main(int argc, char *argv[]) {
     bio::record_array scaffolds(0);
     if (!bio_io::read_source(input, scaffolds)) return 1;
     if (!scaffolds.size()) {
-        std::cerr << "Error: no valid sequence was read\n";
-        return 0;
+        std::cerr << "\nError: no valid sequence was read\n";
+        return 1;
     }
     if (!QUIET) std::cerr << "Number of Scaffolds: " << std::setw(32) << scaffolds.size() << '\n';
 
@@ -176,20 +173,32 @@ int main(int argc, char *argv[]) {
 
     /* extract all the orfs */
     bool circ = (bool) args.count("circ");
-    // int max_alt = (int) args["alter"].as<uint32_t>();
+    int max_alt = (int) args["alter"].as<uint32_t>();
     bio::orf_array orfs;
     for (int i = 0; i < scaffolds.size(); i ++) {
         const auto sublen = scaffolds[i].sequence.length();
         total_len += sublen;
+        if (total_len >= 100000000) {
+            std::cerr << "\nError: sequence exceeds 100000000 bp and cannot be processed.\n";
+            return 1;
+        }
         gc_cont += bio_util::gc_count(scaffolds[i].sequence.c_str(), sublen);
 
         if (sublen >= minlen) {
-            bio_util::get_orfs(scaffolds[i], starts, stops, minlen, circ, orfs, 6);
+            bio_util::get_orfs(scaffolds[i], starts, stops, minlen, circ, orfs, max_alt);
+            if (orfs.size() >= 10000000) {
+                std::cerr << "\nError: total ORF exceeds 10000000 and cannot be processed.\n";
+                return 1;
+            }
         } else if (!QUIET) {
             std::cerr << "Warning: skip " << scaffolds[i].name << " (too short)\n";
         }
     }
     const uint32_t n_orfs = (uint32_t) orfs.size();
+    if (n_orfs <= 0) {
+        std::cerr << "\nError: no ORF matching the definition was found.\n";
+        return 1;
+    }
 
     /* calculate basic genome stats */
     gc_cont /= total_len;
@@ -216,54 +225,116 @@ int main(int argc, char *argv[]) {
     
     /* convert orfs to zcurve params */
     double *params = new double[DIM_A*n_orfs];
-    encoding::encode_orfs(orfs, params);
+    if (params == nullptr) {
+        std::cerr << "\nError: memory error (cannot alloc sufficient memory)\n";
+        return 1;
+    }
+    encoding::encode_orfs(orfs, params, 4);
 
     /* load pre-trained models and calculate scores */
     if (!model::init_models()) return 1;
     if(!QUIET) std::cerr << "Loaded Model:" << std::setw(41) << "Prokaryota\n";
-    double *probas = new double[n_orfs]();
-    int off = 0, num_seeds = 0;
+    double *p_scores = new double[n_orfs]();
+    if (p_scores == nullptr) {
+        std::cerr << "\nError: memory error (cannot alloc sufficient memory)\n";
+        return 1;
+    }
+    int off = 0;
     if (!QUIET) std::cerr << "Initialization:" << std::setw(38) << "0 %";
     for (int i = 0; i < N_MODELS; i ++) {
         int size = gc_intv_count[i];
-        model::mlp_predict(i, params+off*DIM_A, size, probas+off);
+        model::mlp_predict(i, params+off*DIM_A, size, p_scores+off);
         if (!QUIET) std::cerr << "\rInitialization:" << std::setw(36) << (int)(i*1.67) << " %";
         off += gc_intv_count[i];
     }
-    
-    /* train rbs-svm models */
-    if (!QUIET) std::cerr << "\nTraining Model ...";
-    double *scores = new double[n_orfs]();
+
+    /* plot z-curves for the upstream flanking regions */
+    bio::orf_array seeds;
+    for (int i = 0; i < orfs.size(); i ++) if (p_scores[i] >= UP_PROBA) seeds.push_back(orfs[i]);
+    const int num_seeds = seeds.size();
+    if (!QUIET) std::cerr << "\nNumber of Seed ORFs: " << std::setw(32) << num_seeds << '\n';
+
+    int plot_range = minlen*2;
+    double *curves = new double[plot_range*3]();
+    if (curves == nullptr) {
+        std::cerr << "\nError: memory error (cannot alloc sufficient memory)\n";
+        return 1;
+    }
+    pch_array p_flankings;
+    for (int i = 0; i < num_seeds; i ++) {
+        int up_start = seeds[i].t_start - minlen;
+        int up_end = seeds[i].t_start + minlen;
+        if (up_start < 0 || up_end > seeds[i].host_len) continue;
+        char *pstr = seeds[i].pstr - minlen;
+        encoding::z_curve(pstr, plot_range, curves);
+        p_flankings.push_back(pstr);
+    }
+    for (int i = 0; i < plot_range*3; i ++) curves[i] /= (double) num_seeds;
+
+    /* detect RBS region and spacer */
+    bio::region *rbs_region = nullptr;
+    int spacer_len, rbs_len;
+    for (int i = 0; i < 3; i ++) {
+        bio::region *root = new bio::region(0, -1);
+        int c = encoding::find_island(curves+i*plot_range, minlen, 6, 1-1e-6, root);
+        rbs_region = root->next;
+        for (int i = 0; i < (c - 1); i++) {
+            bio::region *ths = rbs_region;
+            rbs_region = rbs_region->next;
+            delete ths;
+        }
+        delete root;
+        if (rbs_region) {
+            spacer_len = minlen - rbs_region->end + 1;
+            rbs_len = rbs_region->end - rbs_region->start;
+            if ((spacer_len >= 4 && spacer_len <= 13) &&
+                (rbs_len    >= 3 && rbs_len    <= 10)) break;
+            delete rbs_region;
+            rbs_region = nullptr;
+        }
+    }
+
+    /* train rbs-svm model */
+    if (!QUIET) std::cerr << "Training Model ...";
+    double *d_scores = new double[n_orfs]();
+    if (d_scores == nullptr) {
+        std::cerr << "\nError: memory error (cannot alloc sufficient memory)\n";
+        return 1;
+    }
     bool training = !((bool) args.count("bypass"));
     if (training) {
-        training = model::train_predict(params, n_orfs, probas, scores);
+        training = model::rbf_train(params, n_orfs, p_scores, d_scores);
         if (!QUIET) std::cerr << std::setw(36) << (training ? "Done\n" : "Skipped\n");
     } else if (!QUIET) std::cerr << std::setw(36) << "Bypassed\n";
+
+    /* relocate gene starts */
+    std::cerr << "Relocating Gene Starts ...";
+    if (rbs_region) {
+        char *consensus = bio_util::get_consensus(p_flankings, rbs_region->start, rbs_region->end);
+        if (!args.count("longest")) {
+            if (!QUIET) {
+                std::cerr << std::setw(28) << "Done\n"
+                          << "Maxinum Alter Starts: " << std::setw(31) << max_alt << "\n"
+                          << "RBS Consensus: " << std::setw(39) << "5'-" + std::string(consensus) + "-3'\n"
+                          << "RBS Spacer Length: " << std::setw(31) << spacer_len << " nt\n";
+            }
+        } else if (!QUIET) std::cerr << std::setw(28) << "Bypassed\n";
+    } else if (!QUIET) std::cerr << std::setw(28) << "Skipped\n";
     
     /* classifying orfs */
     auto thres = args["thres"].as<double>();
-    int num_putative = 0;
+    bio::orf_array putative;
+
     for (int i = 0; i < n_orfs; i ++) {
-        if (!training || (scores[i] < thres && probas[i] >= 0.5)) orfs[i].score = probas[i] - 0.5;
-        else orfs[i].score = scores[i];
-        if (orfs[i].score > thres) num_putative ++;
+        if (training && d_scores[i] > 0) orfs[i].score = d_scores[i];
+        else if (p_scores[i] > 0.5) orfs[i].score = p_scores[i] - 0.500;
+        if (orfs[i].score > thres) putative.push_back(orfs[i]);
     }
-    bio::orf_array putative(num_putative);
-    std::copy_if(orfs.begin(), orfs.end(), putative.begin(), [thres](const bio::orf& orf) { 
-        return orf.score > thres; 
-    });
+    int num_putative = (int) putative.size();
     if (!QUIET) std::cerr << "Number of Putative Genes:" << std::setw(28) << num_putative << "\n";
 
-    /* relocate gene starts */
-    // if (args.count("longest")) {
-    //     int flanking = (int) args["flanking"].as<uint32_t>();
-    //     if (!QUIET) {
-    //         std::cerr << "\nPROTEIN-CODING GENE START RELOCATOR OF GS-FINDER 2026\n\n"
-    //                   << "Maxinum Alter Starts: " << std::setw(31) << max_alt << "\n"
-    //                   << "Flanking Width: " << std::setw(34) << flanking << " nt\n";
-    //     }
-    //     bool flag = model::GS_Finder(putative, flanking, ran_eng, QUIET);
-    // }
+    delete[] d_scores;
+    delete[] p_scores;
 
     /* write results to output */
     std::string output = "-";
@@ -291,6 +362,9 @@ int main(int argc, char *argv[]) {
         auto fna = args["fna"].as<std::string>();
         if(!bio_io::write_fna(putative, fna)) return 1;
     }
+
+    delete[] params;
+    delete[] curves;
 
     if (!QUIET) {
         auto end_t = std::chrono::system_clock::now();

@@ -54,12 +54,14 @@ namespace bio {
     } orf;
     /* island region list node */
     typedef struct region {
-        region *next;  // next region node
-        int start, end;     // start and end point of region
+        region *next;     // next region node
+        int start, end;   // start and end point of region
+        int r_len;
         region(int start, int end) {
             this->next = nullptr;
             this->start = start;
             this->end = end;
+            this->r_len = end - start;
         }
     } region;
     /*  scaffold record array type */

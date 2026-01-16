@@ -1,0 +1,26 @@
+IDI_ICON1 ICON "icon.ico"
+1 VERSIONINFO
+FILEVERSION 0,1,0,0
+PRODUCTVERSION 0,1,0,0
+FILEOS 0x4
+FILETYPE 0x1
+{
+  BLOCK "StringFileInfo"
+  {
+    BLOCK "040904B0"
+    {
+      VALUE "CompanyName", "TUBIC\0"
+      VALUE "FileDescription", "Protein-Coding Gene Recognition Software\0"
+      VALUE "FileVersion", "0.1.0.0\0"
+      VALUE "InternalName", "ZCURVE\0"
+      VALUE "LegalCopyright", "Copyright (C) 2026 TUBIC\0"
+      VALUE "OriginalFilename", "zcurve.exe\0"
+      VALUE "ProductName", "ZCURVE 2026\0"
+      VALUE "ProductVersion", "0.1.0.0\0"
+    }
+  }
+  BLOCK "VarFileInfo"
+  {
+    VALUE "Translation", 0x0409, 0x04B0
+  }
+}

@@ -7,15 +7,8 @@ static const int    X = 0, Y = 1, Z = 2, PHASE = 3;
 static const double V = 1.0F/2, W = 1.0F/3, Q = 1.0F/4;
 // dimension constants
 static int dims[] = { 9, 36, 144, 576 };
-/* 
- * Map for converting ASCII chars into one-hot vectors
- *
- * A = [1, 0, 0, 0] G = [0, 1, 0, 0]
- * C = [0, 0, 1, 0] T = [0, 0, 0, 1]
- * 
- * Degenerate symbols are calculated by probabilities
- */
-static double ONE_HOT[][4] = 
+
+double ONE_HOT[][4] = 
 {   
     {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, 
     {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, 
@@ -195,14 +188,14 @@ void encoding::encode(const char *seq, int len, double *data, int n_trans) {
     }
 }
 
-void encoding::encode_orfs(bio::orf_array &orfs, double *data) {
+void encoding::encode_orfs(bio::orf_array &orfs, double *data, int n_trans) {
     const int count = (int) orfs.size();
 #ifdef _OPENMP
     #pragma omp parallel for
 #endif
     for (int i = 0; i < count; i ++) {
         double *head = data + (i * DIM_A);
-        encode(orfs[i].pstr, orfs[i].len, head, 4);
+        encode(orfs[i].pstr, orfs[i].len, head, n_trans);
     }
 }
 
@@ -235,62 +228,74 @@ double encoding::get_slope(double *params, int len) {
 }
 
 double encoding::x_prime_curve(char *seq, int len, double *params) {
+    double *cache = new double[len];
     double counts = 0.0;
     double ySum, xySum, kp;
     int i;
 
     for (i = 0; i < len; i ++) {
         counts += Z_COORD[seq[i]][X];
-        params[i] = counts;
+        cache[i] = counts;
     }
 
-    kp = get_slope(params, len);
+    kp = get_slope(cache, len);
     
-    for (i = 1; i < len; i++)
-        params[i] -= kp * i;
-    
+    for (i = 0; i < len; i++) {
+        cache[i] -= kp * i;
+        params[i] += cache[i];
+    }
+
+    delete[] cache;
     return kp;
 }
 
 double encoding::y_prime_curve(char *seq, int len, double *params) {
+    double *cache = new double[len];
     double counts = 0.0;
     double ySum, xySum, kp;
     int i;
 
     for (i = 0; i < len; i ++) {
-        counts += Z_COORD[seq[i]][Y];
-        params[i] = counts;
+        counts -= Z_COORD[seq[i]][Y];
+        cache[i] = counts;
+    }
+
+    kp = get_slope(cache, len);
+    
+    for (i = 0; i < len; i++) {
+        cache[i] -= kp * i;
+        params[i] += cache[i];
     }
     
-    kp = get_slope(params, len);
-    
-    for (i = 1; i < len; i++)
-        params[i] -= kp * i;
-    
+    delete[] cache;
     return kp;
 }
 
 double encoding::z_prime_curve(char *seq, int len, double *params) {
+    double *cache = new double[len];
     double counts = 0.0;
     double ySum, xySum, kp;
     int i;
 
     for (i = 0; i < len; i ++) {
-        counts += Z_COORD[seq[i]][Z];
-        params[i] = counts;
+        counts -= Z_COORD[seq[i]][Z];
+        cache[i] = counts;
+    }
+
+    kp = get_slope(cache, len);
+    
+    for (i = 0; i < len; i++) {
+        cache[i] -= kp * i;
+        params[i] += cache[i];
     }
     
-    kp = get_slope(params, len);
-    
-    for (i = 1; i < len; i++)
-        params[i] -= kp * i;
-    
+    delete[] cache;
     return kp;
 }
 
 void encoding::z_curve(char *seq, int len, double *params) {
     static double (*prime_curve[3])(char *, int, double *) = {
-        x_prime_curve, y_prime_curve, z_prime_curve
+        y_prime_curve, z_prime_curve, x_prime_curve
     };
     double *p_data = params;
     for (int i = 0; i < 3; i ++) {

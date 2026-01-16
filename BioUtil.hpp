@@ -17,7 +17,7 @@
 #include <iostream>
 #include <unordered_map>
 #include <algorithm>
-#include "BioStruct.hpp"
+#include "Encoding.hpp"
 
 /*  codon to amino acid map */
 extern char trans_tbl[64];
@@ -69,6 +69,7 @@ namespace bio_util {
      * @return  char* protein sequence.
      */
     char *gene2protein(bio::orf &orf, int prolen);
+    char *get_consensus(pch_array flankings, int start, int end);
 }
 
 #endif

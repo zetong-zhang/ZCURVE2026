@@ -19,6 +19,17 @@
 
 #define DIM_A 765
 
+/* 
+ * Map for converting ASCII chars into one-hot vectors
+ *
+ * A = [1, 0, 0, 0] G = [0, 1, 0, 0]
+ * C = [0, 0, 1, 0] T = [0, 0, 0, 1]
+ * 
+ * Degenerate symbols are calculated by probabilities
+ */
+
+extern double ONE_HOT[][4];
+
 namespace encoding {
     /**
      * @brief           Calculate 1-mer Z-curve params for a given sequence.
@@ -60,7 +71,7 @@ namespace encoding {
      * @param orfs  The input ORF array.
      * @param data  The output Z-curve params.
      */
-    void     encode_orfs(bio::orf_array &orfs, double *data);
+    void     encode_orfs(bio::orf_array &orfs, double *data, int n_trans);
     /**
      * @brief           Transform Z-curve params to standardized data.
      * @param data      The input Z-curve params.
@@ -92,7 +103,7 @@ namespace encoding {
      * 
      * @return count of islands.
      */
-    int      find_island(double *values, int length, int window, double minPCC, bio::region *root);
+    int      find_island(double *values, int length, int window, double min_pcc, bio::region *root);
 }
 
 #endif

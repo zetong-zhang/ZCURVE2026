@@ -33,7 +33,7 @@ namespace model {
      * @brief               Initialize the mlp models from embedded source.
      * @return              True if the models are successfully initialized.
      */
-    bool init_models();
+    bool    init_models();
     /**
      * @brief           Predict the output of a mlp model.
      * @param model_id  The index of the mlp model.
@@ -41,7 +41,7 @@ namespace model {
      * @param size      The size of the input data.
      * @param probas    The output probabilities.
      */
-    void mlp_predict(int index, double *data, int size, double *probas);
+    void    mlp_predict(int index, double *data, int size, double *probas);
     /**
      * @brief               Train and predict the output of a SVM model.
      * @param params        The SVM parameters.
@@ -50,8 +50,7 @@ namespace model {
      * @param score         The output scores.
      * @return              True if the training and prediction are successful.
      */
-    bool train_predict(double *params, int size, double *init_score, double *score);
-    bool GS_Finder(bio::orf_array &seeds, int flanking, std::mt19937_64 &ran_eng, bool QUIET);
+    bool    rbf_train(double *params, int size, double *init_score, double *score);
 }
 
 #endif

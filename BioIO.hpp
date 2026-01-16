@@ -20,7 +20,6 @@
 #include <assert.h>
 #include <iomanip>
 
-#include "BioStruct.hpp"
 #include "BioUtil.hpp"
 /* The buffer size for file reading. */
 #define BUFF_SIZE 65536

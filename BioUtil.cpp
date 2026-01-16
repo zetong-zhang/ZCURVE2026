@@ -109,6 +109,7 @@ char *bio_util::gene2protein(bio::orf &gene, int prolen) {
 
 static int refine_start(int_array &start_locs, int_array &start_types) {
     int t_start = start_locs.at(0);
+    // return t_start;
     for (int k = 0; k < start_locs.size(); k ++) {
         int alter = start_locs.at(k);
         if (start_types[k] == 0 && (alter-t_start)<=60) {
@@ -133,7 +134,7 @@ static op_type check_overprint(const bio::orf &a, const bio::orf &b) {
     return op_type::DISJOINT;
 }
 
-char prob_to_iupac(double *probs) {
+char prob_to_iupac(double *freqs) {
     static const std::unordered_map<std::string, char> iupac = {
         {"A", 'A'}, {"C", 'C'}, {"G", 'G'}, {"T", 'T'},
         {"AG", 'R'}, {"CT", 'Y'}, {"CG", 'S'}, {"AT", 'W'},
@@ -141,9 +142,13 @@ char prob_to_iupac(double *probs) {
         {"CGT", 'B'}, {"AGT", 'D'}, {"ACT", 'H'}, {"ACG", 'V'},
         {"ACGT", 'N'}
     };
-    std::string bases("ACGT");
+    std::string bases("AGCT");
     std::vector<std::pair<double, char>> v;
-    for (int i = 0; i < 4; ++i) if (probs[i] > 0.0) v.emplace_back(probs[i], bases[i]);
+    double sum = freqs[0] + freqs[1] + freqs[2] + freqs[3];
+    for (int i = 0; i < 4; ++i) {
+        freqs[i] /= sum;
+        if (freqs[i] > 0.0) v.emplace_back(freqs[i], bases[i]);
+    }
     if (v.empty()) return 'N';
     std::sort(v.begin(), v.end(), [](const auto& a, const auto& b) { return a.first > b.first;});
     double cum = 0.0;
@@ -151,11 +156,31 @@ char prob_to_iupac(double *probs) {
     for (const auto& p : v) {
         cum += p.first;
         key += p.second;
-        if (cum >= 0.6) break;
+        if (cum >= 0.3) break;
     }
     std::sort(key.begin(), key.end(), [bases](char a, char b) { return bases.find(a) < bases.find(b);});
     auto it = iupac.find(key);
     return (it != iupac.end()) ? it->second : 'N';
+}
+
+char* bio_util::get_consensus(pch_array flankings, int start, int end) {
+    int length = end - start;
+    char *consensus = new char[length+1];
+    double *counters = new double[length*4]();
+    for (int j = 0; j < flankings.size(); j ++) {
+        char *pstr = flankings.at(j);
+        for (int i = start; i < end; i ++) {
+            int off = (i - start) * 4;
+            for (int k = 0; k < 4; k ++) 
+                counters[off + k] += ONE_HOT[pstr[i]][k];
+        }
+    }
+    for (int i = 0; i < length; i ++) {
+        consensus[i] = prob_to_iupac(counters + i * 4);
+    }
+    consensus[length] = '\0';
+    delete[] counters;
+    return consensus;
 }
 
 void bio_util::get_orfs(
