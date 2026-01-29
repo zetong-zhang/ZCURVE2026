@@ -13,11 +13,11 @@
 // The number of mlp models in meta.bin
 #define N_MODELS  61
 // The number of neural neurons
-#define N_HIDDEN  200
+#define N_HIDDEN  100
 // The number of total params in a mlp model
-#define N_PARAMS  154931
+#define N_PARAMS  19479
 // The upper limit for threshold of seed ORFs
-#define UP_PROBA  0.9
+#define UP_PROBA  0.6
 
 #include <iostream>
 #include <fstream>
@@ -33,7 +33,10 @@ namespace model {
      * @brief               Initialize the mlp models from embedded source.
      * @return              True if the models are successfully initialized.
      */
-    bool    init_models();
+    bool       init_models();
+
+    double *   build_rbs_data(pch_array &flankings,svm_model* cds_model, double *params,
+                              bio::region *rbs_region, int plot_range);
     /**
      * @brief           Predict the output of a mlp model.
      * @param model_id  The index of the mlp model.
@@ -41,16 +44,37 @@ namespace model {
      * @param size      The size of the input data.
      * @param probas    The output probabilities.
      */
-    void    mlp_predict(int index, double *data, int size, double *probas);
+    void       mlp_predict(int index, double *data, int size, double *probas);
     /**
-     * @brief               Train and predict the output of a SVM model.
+     * @brief               Train a Fisher linear discriminant.
+     * @param data          The input data.
+     * @param size          The size of the input data.
+     * @param dim           The dimension of the input data.
+     * @param labels        The class labels of the input data.
+     * @param coef          The output coefficients.
+     * @return              True if the training is successful.
+     */
+    bool       fisher_train(double **data, int size, int dim, int *labels, double *coef);
+    /**
+     * @brief               Predict the output of a Fisher linear discriminant.
+     * @param data          The input data.
+     * @param size          The size of the input data.
+     * @param dim           The dimension of the input data.
+     * @param coef          The coefficients of the Fisher linear discriminant.
+     * @return              The output scores.
+     */
+    double *   fisher_predict(double *data, int size, int dim, double *coef);
+    /**
+     * @brief               Train a SVM model.
      * @param params        The SVM parameters.
      * @param size          The size of the input data.
+     * @param dim           The dimension of the input data.
+     * @param offset        The offset of the input data.
      * @param init_score    The initial scores.
-     * @param score         The output scores.
-     * @return              True if the training and prediction are successful.
+     * @return              The model
      */
-    bool    rbf_train(double *params, int size, double *init_score, double *score);
+    svm_model* rbf_train(double *params, int size, int dim, double *init_score, 
+                         double *mins, double *maxs);
 }
 
 #endif

@@ -1,5 +1,5 @@
 # ZCURVE 2026
-A Prokaryotic Protein-coding Gene Recognition System Based On The Z-curve Theory
+More Than A Prokaryotic Protein-coding Gene Recognition System
 
 ![Software Features](./features.png)
 ## Setup
@@ -8,6 +8,7 @@ Download the latest precompiled binary file from the [release page](https://gith
 ### Other Operating Systems
 Download and compile the source code yourself.
 
+Compilation Example: 
 ```bash
 objcopy --input binary --output elf64-x86-64 --binary-architecture i386:x86-64 meta.bin meta.bin.o
 g++ -DZLIB -o zcurve -fopenmp -mavx -mfma meta.bin.o Main.cpp BioIO.cpp BioUtil.cpp Encoding.cpp Model.cpp svm.cpp -static -lz -O3
@@ -66,5 +67,5 @@ Treat topology as circular for all the input sequences.
 Bypass semi-supervised SVM training. For extremely short genomic sequences, this option will be enabled forcibly. For sequences of mixed species, we recommend enabling this option, as the SVM is only suitable for training on a single genome.
 
 * `-s, --thres`  
-Specify putative gene score threshold. Default to 0.
+Specify putative gene score (the probability of an ORF being a gene) threshold. Default to 0.5.
 

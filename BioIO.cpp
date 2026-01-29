@@ -272,8 +272,9 @@ bool bio_io::write_faa(
             rend = host_len - orfs[i].t_start;
         }
         handle << '>' << orfs[i].host << ':' << rstart << ".." << rend << '(' 
-               << orfs[i].strand << ") score=" << orfs[i].score << '\n';
-        int prolen = orfs[i].len / 3;
+               << orfs[i].strand << ") score=" << std::fixed << std::setprecision(3) 
+               << orfs[i].score << '\n';
+        int prolen = (int) (orfs[i].len / 3);
         char *protein = bio_util::gene2protein(orfs[i], prolen);
         if (!protein) {
             std::cerr << "Warning: invalid characters encountered in "
@@ -305,18 +306,82 @@ bool bio_io::write_fna(
     for (int i = 0; i < count; i ++) {
         int rstart, rend, host_len = orfs[i].host_len;;
         if (orfs[i].strand == '+') {
-            rstart = host_len - orfs[i].t_start + 1;
-            rend = host_len - orfs[i].end;
+            rstart = orfs[i].t_start + 1;
+            rend = orfs[i].end;
         } else {
-            rstart = orfs[i].end + 1;
-            rend = orfs[i].t_start;
+            rstart = host_len - orfs[i].end + 1;
+            rend = host_len - orfs[i].t_start;
         }
         handle << '>' << orfs[i].host << ':' << rstart << ".." << rend << '(' 
-               << orfs[i].strand << ") score=" << orfs[i].score << '\n';
+               << orfs[i].strand << ") score=" << std::fixed << std::setprecision(3) 
+               << orfs[i].score << '\n';
         for (int j = 0; j < orfs[i].len; j += 80) {
             int line_length = std::min(80, orfs[i].len - j);
-            handle.write(orfs[i].pstr + j, line_length);
+            handle.write(orfs[i].seq + j, line_length);
             handle << '\n';
+        }
+    }
+    handle.close();
+    return true;
+}
+
+bool bio_io::write_overlap(
+    bio::orf_array &orfs,
+    const std::string &filename,
+    double min_ratio
+) {
+    std::ofstream handle(filename);
+    if (!handle.is_open()) {
+        std::cerr << "\nError: failed to open " << filename << std::endl;
+        return false;
+    }
+    handle << "##gff-version 3\n";
+    int count = (int) orfs.size();
+    int n_ol = 0;
+    for (int i = 0; i < count; i ++) {
+        for (int j = i + 1; j < count; j ++) {
+            op_type overlap = bio_util::check_overlap(orfs[i], orfs[j], min_ratio);
+            if (overlap != op_type::DISJOINT) {
+                n_ol ++;
+                handle << "# index=" << std::setw(4) << std::setfill('0') << n_ol << ";type=" 
+                        << (overlap == op_type::INTERSECT ? "INTERSECT\n" : "INCLUDE\n");
+                int rstart, rend, host_len;
+
+                host_len = orfs[i].host_len;
+                if (orfs[i].strand == '+') {
+                    rstart = orfs[i].t_start + 1;
+                    rend = orfs[i].end;
+                } else {
+                    rstart = host_len - orfs[i].end + 1;
+                    rend = host_len - orfs[i].t_start;
+                }
+                handle << orfs[i].host << '\t' << VERSION << "\tCDS\t";
+                // start + end
+                handle << rstart << '\t' << rend << '\t';
+                // score
+                handle << std::fixed << std::setprecision(3) 
+                       << orfs[i].score << '\t';
+                // strand + phase
+                handle << orfs[i].strand << "\t0\t.\n";
+
+                host_len = orfs[j].host_len;
+                if (orfs[j].strand == '+') {
+                    rstart = orfs[j].t_start + 1;
+                    rend = orfs[j].end;
+                } else {
+                    rstart = host_len - orfs[j].end + 1;
+                    rend = host_len - orfs[j].t_start;
+                }
+                // seqid + source + type
+                handle << orfs[j].host << '\t' << VERSION << "\tCDS\t";
+                // start + end
+                handle << rstart << '\t' << rend << '\t';
+                // score
+                handle << std::fixed << std::setprecision(3)
+                       << orfs[j].score << '\t';
+                // strand + phase
+                handle << orfs[j].strand << "\t0\t.\n";
+            }
         }
     }
     handle.close();

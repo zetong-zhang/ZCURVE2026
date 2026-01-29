@@ -64,6 +64,16 @@ namespace bio_io {
      *         false If the file is not successfully written.
      */
     bool write_fna(bio::orf_array &orfs, const std::string &filename);
+    /** 
+     * @brief   Write overlapping genes to a GFF3 file.
+     * 
+     * @param orfs      The ORF array to be checked.
+     * @param filename  The path to the output file.
+     * @param min_ratio The minimum overlap ratio to consider.
+     * @return true If the file is successfully written.
+     *         false If the file is not successfully written.
+     */
+    bool write_overlap(bio::orf_array &orfs, const std::string &filename, double min_ratio);
 }
 
 #endif

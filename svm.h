@@ -2,7 +2,6 @@
 #define _LIBSVM_H
 
 #define LIBSVM_VERSION 336
-#define DIM_S 189
 
 #include <immintrin.h>
 
@@ -67,9 +66,9 @@ struct svm_model
 				/* 0 if svm_model is created by svm_train */
 };
 
-struct svm_model *svm_train(const struct svm_problem *prob, const struct svm_parameter *param);
+struct svm_model *svm_train(const struct svm_problem *prob, const struct svm_parameter *param, int dim);
 
-double svm_predict_score(const struct svm_model *model, const double *x);
+double svm_predict_score(const struct svm_model *model, const double *x, int dim);
 
 void svm_free_model_content(struct svm_model *model_ptr);
 void svm_free_and_destroy_model(struct svm_model **model_ptr_ptr);

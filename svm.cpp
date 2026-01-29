@@ -1,4 +1,4 @@
-#include <math.h>
+#include <cmath>
 #include <stdio.h>
 #include <stdlib.h>
 #include <ctype.h>
@@ -184,11 +184,12 @@ public:
 
 class Kernel: public QMatrix {
 public:
-	Kernel(int l, double * const * x, const svm_parameter& param);
+	const int dim;
+	Kernel(int l, double * const * x, const svm_parameter& param, int dim);
 	virtual ~Kernel();
 
 	static double k_function(const double *x, const double *y,
-				 const svm_parameter& param, int dim=DIM_S);
+				 const svm_parameter& param, int dim);
 	virtual Qfloat *get_Q(int column, int len) const = 0;
 	virtual double *get_QD() const = 0;
 	virtual void swap_index(int i, int j) const	// no so const...
@@ -210,22 +211,22 @@ private:
 	const double gamma;
 	const double coef0;
 
-	static double dot(const double *px, const double *py, int dim=DIM_S);
+	static double dot(const double *px, const double *py, int dim);
 	double kernel_linear(int i, int j) const
 	{
-		return dot(x[i],x[j]);
+		return dot(x[i],x[j], dim);
 	}
 	double kernel_poly(int i, int j) const
 	{
-		return powi(gamma*dot(x[i],x[j])+coef0,degree);
+		return powi(gamma*dot(x[i],x[j], dim)+coef0,degree);
 	}
 	double kernel_rbf(int i, int j) const
 	{
-		return exp(-gamma*(x_square[i]+x_square[j]-2*dot(x[i],x[j])));
+		return exp(-gamma*(x_square[i]+x_square[j]-2*dot(x[i],x[j], dim)));
 	}
 	double kernel_sigmoid(int i, int j) const
 	{
-		return tanh(gamma*dot(x[i],x[j])+coef0);
+		return tanh(gamma*dot(x[i],x[j], dim)+coef0);
 	}
 	double kernel_precomputed(int i, int j) const
 	{
@@ -233,10 +234,10 @@ private:
 	}
 };
 
-Kernel::Kernel(int l, double * const * x_, const svm_parameter& param)
+Kernel::Kernel(int l, double * const * x_, const svm_parameter& param, int dim)
 :kernel_type(param.kernel_type), degree(param.degree),
- gamma(param.gamma), coef0(param.coef0)
-{
+ gamma(param.gamma), coef0(param.coef0), dim(dim)
+{	
 	switch(kernel_type)
 	{
 		case LINEAR:
@@ -262,7 +263,7 @@ Kernel::Kernel(int l, double * const * x_, const svm_parameter& param)
 	{
 		x_square = new double[l];
 		for(int i=0;i<l;i++)
-			x_square[i] = dot(x[i],x[i]);
+			x_square[i] = dot(x[i],x[i], dim);
 	}
 	else
 		x_square = 0;
@@ -319,10 +320,10 @@ double Kernel::k_function(const double *x, const double *y,
     switch(param.kernel_type)
     {
         case LINEAR:
-            return dot(x,y);
+            return dot(x,y,dim);
 
         case POLY:
-            return powi(param.gamma * dot(x,y) + param.coef0, param.degree);
+            return powi(param.gamma * dot(x,y,dim) + param.coef0, param.degree);
 
         case RBF:
         {
@@ -370,7 +371,7 @@ double Kernel::k_function(const double *x, const double *y,
         }
 
         case SIGMOID:
-            return tanh(param.gamma * dot(x,y) + param.coef0);
+            return tanh(param.gamma * dot(x,y,dim) + param.coef0);
 
         case PRECOMPUTED:
             return x[(int)*y];
@@ -1265,8 +1266,8 @@ double Solver_NU::calculate_rho()
 class SVC_Q: public Kernel
 {
 public:
-	SVC_Q(const svm_problem& prob, const svm_parameter& param, const schar *y_)
-	:Kernel(prob.l, prob.x, param)
+	SVC_Q(const svm_problem& prob, const svm_parameter& param, const schar *y_, int dim)
+	:Kernel(prob.l, prob.x, param, dim)
 	{
 		clone(y,y_,prob.l);
 		cache = new Cache(prob.l,(size_t)(param.cache_size*(1<<20)));
@@ -1318,8 +1319,8 @@ private:
 class ONE_CLASS_Q: public Kernel
 {
 public:
-	ONE_CLASS_Q(const svm_problem& prob, const svm_parameter& param)
-	:Kernel(prob.l, prob.x, param)
+	ONE_CLASS_Q(const svm_problem& prob, const svm_parameter& param, int dim)
+	:Kernel(prob.l, prob.x, param, dim)
 	{
 		cache = new Cache(prob.l,(size_t)(param.cache_size*(1<<20)));
 		QD = new double[prob.l];
@@ -1364,8 +1365,8 @@ private:
 class SVR_Q: public Kernel
 {
 public:
-	SVR_Q(const svm_problem& prob, const svm_parameter& param)
-	:Kernel(prob.l, prob.x, param)
+	SVR_Q(const svm_problem& prob, const svm_parameter& param, int dim)
+	:Kernel(prob.l, prob.x, param, dim)
 	{
 		l = prob.l;
 		cache = new Cache(l,(size_t)(param.cache_size*(1<<20)));
@@ -1443,7 +1444,7 @@ private:
 // construct and solve various formulations
 //
 static void solve_c_svc(
-	const svm_problem *prob, const svm_parameter* param,
+	const svm_problem *prob, const svm_parameter* param, int dim,
 	double *alpha, Solver::SolutionInfo* si, double Cp, double Cn)
 {
 	int l = prob->l;
@@ -1460,7 +1461,7 @@ static void solve_c_svc(
 	}
 
 	Solver s;
-	s.Solve(l, SVC_Q(*prob,*param,y), minus_ones, y,
+	s.Solve(l, SVC_Q(*prob,*param,y,dim), minus_ones, y,
 		alpha, Cp, Cn, param->eps, si, param->shrinking);
 
 	double sum_alpha=0;
@@ -1476,7 +1477,7 @@ static void solve_c_svc(
 
 static void solve_nu_svc(
 	const svm_problem *prob, const svm_parameter *param,
-	double *alpha, Solver::SolutionInfo* si)
+	double *alpha, Solver::SolutionInfo* si, int dim)
 {
 	int i;
 	int l = prob->l;
@@ -1511,7 +1512,7 @@ static void solve_nu_svc(
 		zeros[i] = 0;
 
 	Solver_NU s;
-	s.Solve(l, SVC_Q(*prob,*param,y), zeros, y,
+	s.Solve(l, SVC_Q(*prob,*param,y, dim), zeros, y,
 		alpha, 1.0, 1.0, param->eps, si,  param->shrinking);
 	double r = si->r;
 
@@ -1529,7 +1530,7 @@ static void solve_nu_svc(
 
 static void solve_one_class(
 	const svm_problem *prob, const svm_parameter *param,
-	double *alpha, Solver::SolutionInfo* si)
+	double *alpha, Solver::SolutionInfo* si, int dim)
 {
 	int l = prob->l;
 	double *zeros = new double[l];
@@ -1552,7 +1553,7 @@ static void solve_one_class(
 	}
 
 	Solver s;
-	s.Solve(l, ONE_CLASS_Q(*prob,*param), zeros, ones,
+	s.Solve(l, ONE_CLASS_Q(*prob,*param,dim), zeros, ones,
 		alpha, 1.0, 1.0, param->eps, si, param->shrinking);
 
 	delete[] zeros;
@@ -1561,7 +1562,7 @@ static void solve_one_class(
 
 static void solve_epsilon_svr(
 	const svm_problem *prob, const svm_parameter *param,
-	double *alpha, Solver::SolutionInfo* si)
+	double *alpha, Solver::SolutionInfo* si, int dim)
 {
 	int l = prob->l;
 	double *alpha2 = new double[2*l];
@@ -1581,7 +1582,7 @@ static void solve_epsilon_svr(
 	}
 
 	Solver s;
-	s.Solve(2*l, SVR_Q(*prob,*param), linear_term, y,
+	s.Solve(2*l, SVR_Q(*prob,*param,dim), linear_term, y,
 		alpha2, param->C, param->C, param->eps, si, param->shrinking);
 
 	double sum_alpha = 0;
@@ -1598,7 +1599,7 @@ static void solve_epsilon_svr(
 
 static void solve_nu_svr(
 	const svm_problem *prob, const svm_parameter *param,
-	double *alpha, Solver::SolutionInfo* si)
+	double *alpha, Solver::SolutionInfo* si, int dim)
 {
 	int l = prob->l;
 	double C = param->C;
@@ -1621,7 +1622,7 @@ static void solve_nu_svr(
 	}
 
 	Solver_NU s;
-	s.Solve(2*l, SVR_Q(*prob,*param), linear_term, y,
+	s.Solve(2*l, SVR_Q(*prob,*param,dim), linear_term, y,
 		alpha2, C, C, param->eps, si, param->shrinking);
 
 	for(i=0;i<l;i++)
@@ -1643,26 +1644,26 @@ struct decision_function
 
 static decision_function svm_train_one(
 	const svm_problem *prob, const svm_parameter *param,
-	double Cp, double Cn)
+	double Cp, double Cn, int dim)
 {
 	double *alpha = Malloc(double,prob->l);
 	Solver::SolutionInfo si;
 	switch(param->svm_type)
 	{
 		case C_SVC:
-			solve_c_svc(prob,param,alpha,&si,Cp,Cn);
+			solve_c_svc(prob,param,dim,alpha,&si,Cp,Cn);
 			break;
 		case NU_SVC:
-			solve_nu_svc(prob,param,alpha,&si);
+			solve_nu_svc(prob,param,alpha,&si,dim);
 			break;
 		case ONE_CLASS:
-			solve_one_class(prob,param,alpha,&si);
+			solve_one_class(prob,param,alpha,&si,dim);
 			break;
 		case EPSILON_SVR:
-			solve_epsilon_svr(prob,param,alpha,&si);
+			solve_epsilon_svr(prob,param,alpha,&si,dim);
 			break;
 		case NU_SVR:
-			solve_nu_svr(prob,param,alpha,&si);
+			solve_nu_svr(prob,param,alpha,&si,dim);
 			break;
 	}
 
@@ -1774,7 +1775,7 @@ static void svm_group_classes(const svm_problem *prob, int *nr_class_ret, int **
 //
 // Interface functions
 //
-svm_model *svm_train(const svm_problem *prob, const svm_parameter *param)
+svm_model *svm_train(const svm_problem *prob, const svm_parameter *param, int dim)
 {
 	svm_model *model = Malloc(svm_model,1);
 	model->param = *param;
@@ -1843,7 +1844,7 @@ svm_model *svm_train(const svm_problem *prob, const svm_parameter *param)
 					sub_prob.y[ci+k] = -1;
 				}
 
-				f[p] = svm_train_one(&sub_prob,param,weighted_C[i],weighted_C[j]);
+				f[p] = svm_train_one(&sub_prob,param,weighted_C[i],weighted_C[j],dim);
 				for(k=0;k<ci;k++)
 					if(!nonzero[si+k] && fabs(f[p].alpha[k]) > 0)
 						nonzero[si+k] = true;
@@ -1962,7 +1963,7 @@ svm_model *svm_train(const svm_problem *prob, const svm_parameter *param)
 	return model;
 }
 
-double svm_predict_score(const struct svm_model *model, const double *x) {
+double svm_predict_score(const struct svm_model *model, const double *x, int dim) {
     if(model->param.svm_type != C_SVC || model->nr_class != 2) {
         fprintf(stderr, "Error: model is not binary C-SVC.\n");
         return 0.0;
@@ -1973,12 +1974,12 @@ double svm_predict_score(const struct svm_model *model, const double *x) {
     double sum = 0.0;
 
     for(int i = 0; i < l; i++) {
-        double Kxi = Kernel::k_function(x, model->SV[i], model->param);
+        double Kxi = Kernel::k_function(x, model->SV[i], model->param, dim);
         sum += sv_coef[i] * Kxi;
     }
-
     sum -= model->rho[0];
-    return sum;
+	
+    return 1.0/(1.0 + std::exp(-sum));
 }
 
 static char *line = NULL;

@@ -67,10 +67,11 @@ char *bio_util::get_complement(
     const std::string &origin
 ) {
     size_t len = origin.size();
-    char *comp = new char[len];
+    char *comp = NEW char[len+1];
     if (!comp) return nullptr;
     for (size_t i = 0; i < len; i ++)
         comp[i] = COMP[origin.at(len - i - 1)];
+    comp[len] = '\0';
     return comp;
 }
 
@@ -88,28 +89,29 @@ static int match_codon(
 }
 
 char *bio_util::gene2protein(bio::orf &gene, int prolen) {
-    char *protein = new char[prolen]; 
+    char *protein = NEW char[prolen+1]; 
+    if (!protein) return nullptr;
     try {
         for (int i = 0; i < prolen; i ++) {
             if (!(gene.partial5 || i)) {
                 protein[0] = 'M';
                 continue;
             }
-            int f = base2offset.at(gene.pstr[i*3+0]);
-            int s = base2offset.at(gene.pstr[i*3+1]);
-            int t = base2offset.at(gene.pstr[i*3+2]);
+            int f = base2offset.at(gene.seq[i*3+0]);
+            int s = base2offset.at(gene.seq[i*3+1]);
+            int t = base2offset.at(gene.seq[i*3+2]);
             protein[i] = trans_tbl[f*16+s*4+t];
         }
     } catch (const std::out_of_range& e) {
         delete[] protein;
         return nullptr;
     }
+    protein[prolen] = '\0';
     return protein;
 }
 
 static int refine_start(int_array &start_locs, int_array &start_types) {
     int t_start = start_locs.at(0);
-    // return t_start;
     for (int k = 0; k < start_locs.size(); k ++) {
         int alter = start_locs.at(k);
         if (start_types[k] == 0 && (alter-t_start)<=60) {
@@ -120,16 +122,15 @@ static int refine_start(int_array &start_locs, int_array &start_types) {
     return t_start;
 }
 
-static op_type check_overprint(const bio::orf &a, const bio::orf &b) {
-    static const int MIN_OLEN = 60;
+op_type bio_util::check_overlap(const bio::orf &a, const bio::orf &b, double ratio) {
     if (!strcmp(a.host, b.host) && a.strand == b.strand) {
         int olen = 0;
-        if (a.strand == '+' && a.end > b.t_start && b.end > a.t_start)
+        if (a.end > b.t_start && b.end > a.t_start)
             olen = std::min(a.end, b.end) - std::max(a.t_start, b.t_start);
-        if (a.strand == '-' && a.end < b.t_start && b.end < a.t_start)
-            olen = std::min(a.t_start, b.t_start) - std::max(a.end, b.end);
-        if (olen == a.len || olen == b.len) return op_type::INCLUDE;
-        else if (olen >= MIN_OLEN) return op_type::INTERSECT;
+        if (olen == a.len || olen == b.len) 
+            return op_type::INCLUDE;
+        else if ((olen / (double)std::min(a.len, b.len)) >= ratio) 
+            return op_type::INTERSECT;
     }
     return op_type::DISJOINT;
 }
@@ -165,8 +166,8 @@ char prob_to_iupac(double *freqs) {
 
 char* bio_util::get_consensus(pch_array flankings, int start, int end) {
     int length = end - start;
-    char *consensus = new char[length+1];
-    double *counters = new double[length*4]();
+    char *consensus = NEW char[length+1];
+    double *counters = NEW double[length*4]();
     for (int j = 0; j < flankings.size(); j ++) {
         char *pstr = flankings.at(j);
         for (int i = start; i < end; i ++) {
@@ -182,7 +183,7 @@ char* bio_util::get_consensus(pch_array flankings, int start, int end) {
     delete[] counters;
     return consensus;
 }
-
+/* Error handling */
 void bio_util::get_orfs(
     bio::record &scaffold,
     const str_array &starts,
@@ -233,11 +234,11 @@ void bio_util::get_orfs(
                     slocs.clear(), types.clear();
                 }
             }
-
+            
             bool partial3 = (bool) slocs.size();
             // search for partial 3'-end ORFs
             if (partial3) {
-                int end = ps; if (ps > length) end = length;
+                int end = ps; if (end > length) end = length;
                 int t_start = refine_start(slocs, types);
                 int seqlen = end - t_start;
                 if (seqlen < minlen) {
@@ -248,6 +249,7 @@ void bio_util::get_orfs(
                     char *pstr = genome + t_start;
                     double gc_frac = gc_fraction(pstr, seqlen);
                     char strand = neg_strand ? '-' : '+';
+                    seqlen = seqlen / 3 * 3;
                     orfs.emplace_back(
                         hostname, length, std::move(slocs), std::move(types), 
                         end, t_start, seqlen, strand, pstr, gc_frac
@@ -257,33 +259,35 @@ void bio_util::get_orfs(
             }
 
             // search for partial 5'-end ORFs
-            bool has_start = false;
+            int start = -1;
             int ps0 = (phase + ((3 - length % 3) % 3)) % 3;
             for (int ps = ps0; ps < length; ps += 3) {
-                if (!has_start && match_codon(genome+ps, starts) > -1) {
-                    has_start = true;
+                if (start == -1 && match_codon(genome+ps, starts) > -1) {
+                    start = ps;
                     continue;
                 }
                 if (match_codon(genome+ps, stops) > -1) {
                     int end = ps + 3;
                     if (circ && partial3) {
                         bio::orf &orf3 = orfs.at(orfs.size()-1);
-                        int seqlen = orf3.len + end;
+                        int seqlen = length - orf3.t_start + end;
                         if (seqlen >= minlen) {
-                            orf3.seq = new char[seqlen];
-                            std::strncpy(orf3.seq, orf3.pstr, orf3.len);
-                            std::strncpy(orf3.seq+orf3.len, genome, end);
+                            orf3.seq = NEW char[seqlen+1];
+                            std::strcpy(orf3.seq, orf3.pstr);
+                            std::strncat(orf3.seq, genome, end);
+                            orf3.seq[seqlen] = '\0';
                             orf3.end = end;
                             orf3.len = seqlen;
-                            orf3.pstr = orf3.seq;
                             orf3.gc_frac = gc_fraction(orf3.seq, seqlen);
                             orf3.partial3 = false;
+                            if (start >= 0 && (end - start) >= minlen) {
+                                first_orfs_to_del.push_back(ps0);
+                            }
                         } else orfs.pop_back();
-                        if (has_start) first_orfs_to_del.push_back(ps0);
                     } else {
                         int t_start = ps0;
                         int seqlen = end - t_start;
-                        if (!has_start && seqlen >= minlen) {
+                        if (start < 0 && seqlen >= minlen) {
                             char *pstr = genome + t_start;
                             double gc_frac = gc_fraction(pstr, seqlen);
                             char strand = neg_strand ? '-' : '+';
@@ -299,8 +303,9 @@ void bio_util::get_orfs(
             }
         }
 
-        for (auto index : first_orfs_to_del) {
-            orfs.erase(orfs.begin()+phase_first_orfs.at(index));
-        }
+        std::vector<size_t> to_del;
+        for (auto index : first_orfs_to_del) to_del.push_back(phase_first_orfs.at(index));
+        std::sort(to_del.begin(), to_del.end(), std::greater<size_t>());
+        for (auto idx : to_del) orfs.erase(orfs.begin() + idx);
     }
 }

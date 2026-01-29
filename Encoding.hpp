@@ -18,6 +18,7 @@
 #include "BioStruct.hpp"
 
 #define DIM_A 765
+#define DIM_S 189
 
 /* 
  * Map for converting ASCII chars into one-hot vectors
@@ -67,6 +68,12 @@ namespace encoding {
      */
     void     encode     (const char *seq, int len, double *data, int n_trans);
     /**
+     * @brief       Encode sequences into Z-curve params.
+     * @param orfs  The input sequence.
+     * @param data  The output Z-curve params.
+     */
+    void     encode_seqs(pch_array &seqs, int len, double *data, int n_trans);
+    /**
      * @brief       Encode ORFs into Z-curve params.
      * @param orfs  The input ORF array.
      * @param data  The output Z-curve params.
@@ -81,7 +88,17 @@ namespace encoding {
      * @param stds      The standard deviations of Z-curve params.
      * @return          The transformed Z-curve params.
      */
-    double * std_trans(double *data, int n, int dim, const float *means, const float *stds);
+    double * std_scale(double *data, int n, int dim, const float *means, const float *stds);
+    /**
+     * @brief           Transform Z-curve params to min-max scaled data.
+     * @param data      The input Z-curve params.
+     * @param n         The number of samples.
+     * @param dim       The dimension of Z-curve params.
+     * @param mins      The minimums of Z-curve params.
+     * @param maxs      The maximums of Z-curve params.
+     * @return          The transformed Z-curve params.
+     */
+    double * minmax_scale(double *data, int n, int dim, double *mins, double *maxs);
     // TODO
     double   get_slope(double *params, int len);
     // TODO
@@ -104,6 +121,13 @@ namespace encoding {
      * @return count of islands.
      */
     int      find_island(double *values, int length, int window, double min_pcc, bio::region *root);
+    /**
+     * @brief           Apply Gaussian smoothing in-place.
+     * @param params    The input/output parameter array.
+     * @param len       The length of the parameter array.
+     * @param sigma     The standard deviation of the Gaussian kernel.
+     */
+    void     gaussian_smooth(double *params, int len, int sigma);
 }
 
 #endif

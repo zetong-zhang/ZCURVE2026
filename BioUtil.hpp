@@ -32,7 +32,7 @@ namespace bio_util {
      * @param   len length of the sequence.
      * @return  float GC number.
      */
-    double gc_count(const char *seq, const size_t len);
+    double  gc_count(const char *seq, const size_t len);
     /**
      * @brief   calculate GC fraction in a nucleotide sequence.
      * 
@@ -40,14 +40,14 @@ namespace bio_util {
      * @param   len length of the sequence.
      * @return  float GC fraction.
      */
-    double gc_fraction(const char *seq, const size_t len);
+    double  gc_fraction(const char *seq, const size_t len);
     /**
      * @brief   get the complement sequence of a nucleotide sequence.
      * 
      * @param   seq nucleotide sequence.
      * @return  char* complement sequence.
      */
-    char *get_complement(const std::string &seq);
+    char *  get_complement(const std::string &seq);
     /**
      * @brief   get ORFs in a nucleotide sequence.
      * 
@@ -59,7 +59,7 @@ namespace bio_util {
      * @param   orfs      ORF array to be written.
      * @param   max_alt   maxinum number of alter start codon
      */
-    void  get_orfs(bio::record &record, const str_array &starts, const str_array &stops, 
+    void    get_orfs(bio::record &record, const str_array &starts, const str_array &stops, 
         const int minlen, const bool circ, bio::orf_array &orfs, int max_alt);
     /**
      * @brief   translate a nucleotide sequence to a protein sequence.
@@ -68,8 +68,9 @@ namespace bio_util {
      * @param   prolen length of the protein sequence.
      * @return  char* protein sequence.
      */
-    char *gene2protein(bio::orf &orf, int prolen);
-    char *get_consensus(pch_array flankings, int start, int end);
+    char *  gene2protein(bio::orf &orf, int prolen);
+    char *  get_consensus(pch_array flankings, int start, int end);
+    op_type check_overlap(const bio::orf &a, const bio::orf &b, double min_olen=0.6);
 }
 
 #endif

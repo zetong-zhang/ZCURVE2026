@@ -14,7 +14,7 @@ static svm_parameter param = {
     0.0,     /* coef0        */
     200,     /* cache_size   */
     1e-3,    /* eps          */
-    10.0,    /* C            */
+    100.0,   /* C            */
     0,       /* nr_weight    */
     nullptr, /* weight_label */
     nullptr, /* weight       */
@@ -25,8 +25,6 @@ static svm_parameter param = {
 };
 /* Model parameters. */
 const float *MODELS[N_MODELS];
-/* Start codon frequency (ATG:GTG:XTG) */
-double START_FREQ[] = { 0.78, 0.14, 0.08 };
 /**
  * @brief           Calculate dot product of two vectors using AVX instructions.
  * @param x         The first vector.
@@ -128,27 +126,64 @@ bool model::init_models() {
     return true;
 }
 
+double *model::build_rbs_data(
+    pch_array &flankings,
+    svm_model* cds_model,
+    double *params,
+    bio::region *rbs_region,
+    int plot_range
+) {
+    static int dim = 5;
+    int rbs_len = rbs_region ? (rbs_region->end-rbs_region->start) : 0;
+    int n_alters = (int) flankings.size();
+    double *rbs_data = NEW double[n_alters*dim]();
+    if (rbs_data == nullptr) return nullptr;
+# ifdef _OPENMP
+    #pragma omp parallel for schedule(guided)
+# endif
+    for (int i = 0; i < n_alters; i ++) {
+        if (cds_model) {
+            double *p_params = params + i*DIM_S;
+            double *q_params = params + (i + n_alters)*DIM_S;
+            rbs_data[i*dim+0] = svm_predict_score(cds_model, p_params, DIM_S);
+            rbs_data[i*dim+1] = svm_predict_score(cds_model, q_params, DIM_S);
+        }
+        if (rbs_region) {
+            double *curve = NEW double[plot_range*3]();
+            if (curve != nullptr) {
+                encoding::z_curve(flankings[i], plot_range, curve);
+                rbs_data[i*dim+2] = encoding::get_slope(curve+0*plot_range+rbs_region->start, rbs_len);
+                rbs_data[i*dim+3] = encoding::get_slope(curve+1*plot_range+rbs_region->start, rbs_len);
+                rbs_data[i*dim+4] = encoding::get_slope(curve+2*plot_range+rbs_region->start, rbs_len);
+                delete[] curve;
+            }
+        }
+    }
+    return rbs_data;
+}
+
 void model::mlp_predict(int index, double *data, int size, double *probas) {
-    static double tmp = 3.0;
+    static double tmp = 2.0;
     if (!size) return;
     /* scale data */
-    const float *means = MODELS[index], *stds = means + DIM_A;
-    double *scaled = encoding::std_trans(data, size, DIM_A, means, stds);
+    const float *means = MODELS[index], *stds = means + DIM_S;
+    double *scaled = encoding::std_scale(data, size, DIM_S, means, stds);
+    if (!scaled) return;
     /* mlp process */
-    const float *model = stds + DIM_A; // first hidden w
-    const float *hid_bs = model + N_HIDDEN*DIM_A;  // first hidden b
+    const float *model = stds + DIM_S; // first hidden w
+    const float *hid_bs = model + N_HIDDEN*DIM_S;  // first hidden b
     const float *out_ws = hid_bs + N_HIDDEN;  // output w
 #ifdef _OPENMP
     #pragma omp parallel for
 #endif
     for (int i = 0; i < size; i ++) {
-        double *x = scaled + i*DIM_A;
+        double *x = scaled + i*DIM_S;
         // Hidden Layer (765, ) -> (200, )
         double hid_out[N_HIDDEN] = {0.0};
         for (int j = 0; j < N_HIDDEN; j ++) {
-            const float *hid_w = model + j*DIM_A;
+            const float *hid_w = model + j*DIM_S;
             // hid_out = hid_w * x + hid_b
-            hid_out[j] = dot_df_avx(x, hid_w, DIM_A);
+            hid_out[j] = dot_df_avx(x, hid_w, DIM_S);
             // ReLU activation function
             hid_out[j] = std::max(0.0, hid_out[j]+(double)hid_bs[j]);
         }
@@ -162,10 +197,142 @@ void model::mlp_predict(int index, double *data, int size, double *probas) {
     delete[] scaled;
 }
 
-bool model::rbf_train(double *params, int size, double *p_scores, double *d_scores) {
+
+bool model::fisher_train(double **data, int size, int dim, int *labels, double *coef) {
+    if (!data || !labels || !coef || size <= 1 || dim <= 0)
+        return false;
+
+    // ---------- 1. compute class means ----------
+    double *mu_pos = new double[dim]();
+    double *mu_neg = new double[dim]();
+    int n_pos = 0, n_neg = 0;
+
+    for (int i = 0; i < size; ++i) {
+        const double *x = data[i];
+        if (labels[i] == 1) {
+            for (int j = 0; j < dim; ++j)
+                mu_pos[j] += x[j];
+            ++n_pos;
+        } else if (labels[i] == -1) {
+            for (int j = 0; j < dim; ++j)
+                mu_neg[j] += x[j];
+            ++n_neg;
+        }
+    }
+
+    if (n_pos == 0 || n_neg == 0)
+        return false;
+
+    for (int j = 0; j < dim; ++j) {
+        mu_pos[j] /= n_pos;
+        mu_neg[j] /= n_neg;
+    }
+
+    // ---------- 2. compute Sw ----------
+    double *Sw = new double[dim * dim]();
+    double *diff = new double[dim];
+
+    for (int i = 0; i < size; ++i) {
+        const double *x = data[i];
+        const double *mu = (labels[i] == 1) ? mu_pos : mu_neg;
+
+        for (int j = 0; j < dim; ++j)
+            diff[j] = x[j] - mu[j];
+
+        // Sw += diff * diff^T
+        for (int r = 0; r < dim; ++r) {
+            double dr = diff[r];
+            double *row = Sw + r * dim;
+            for (int c = 0; c < dim; ++c)
+                row[c] += dr * diff[c];
+        }
+    }
+
+    // ---------- 3. mean difference ----------
+    double *bvec = new double[dim];
+    for (int i = 0; i < dim; ++i)
+        bvec[i] = mu_pos[i] - mu_neg[i];
+
+    // ---------- 4. solve Sw * w = bvec (Gaussian elimination) ----------
+    // augmented matrix
+    double *A = new double[dim * (dim + 1)];
+    for (int i = 0; i < dim; ++i) {
+        std::memcpy(A + i * (dim + 1), Sw + i * dim, dim * sizeof(double));
+        A[i * (dim + 1) + dim] = bvec[i];
+    }
+
+    // Gaussian elimination
+    for (int i = 0; i < dim; ++i) {
+        double pivot = A[i * (dim + 1) + i];
+        if (std::fabs(pivot) < 1e-12)
+            return false;
+
+        for (int j = i; j < dim + 1; ++j)
+            A[i * (dim + 1) + j] /= pivot;
+
+        for (int k = 0; k < dim; ++k) {
+            if (k == i) continue;
+            double factor = A[k * (dim + 1) + i];
+            for (int j = i; j < dim + 1; ++j)
+                A[k * (dim + 1) + j] -= factor * A[i * (dim + 1) + j];
+        }
+    }
+
+    // solution w
+    double *w = new double[dim];
+    for (int i = 0; i < dim; ++i)
+        w[i] = A[i * (dim + 1) + dim];
+
+    // ---------- 5. bias ----------
+    // b = -0.5 * w · (mu_pos + mu_neg)
+    double *mu_sum = new double[dim];
+    for (int i = 0; i < dim; ++i)
+        mu_sum[i] = mu_pos[i] + mu_neg[i];
+
+    double bias = -0.5 * dot_dd_avx(w, mu_sum, dim);
+
+    // ---------- 6. normalization ----------
+    // ||(w,b)|| = 1
+    double norm2 = dot_dd_avx(w, w, dim) + bias * bias;
+    double norm = std::sqrt(norm2);
+
+    if (norm <= 0.0)
+        return false;
+
+    for (int i = 0; i < dim; ++i)
+        coef[i] = w[i] / norm;
+    coef[dim] = bias / norm;
+
+    // ---------- cleanup ----------
+    delete[] mu_pos;
+    delete[] mu_neg;
+    delete[] Sw;
+    delete[] diff;
+    delete[] bvec;
+    delete[] A;
+    delete[] w;
+    delete[] mu_sum;
+
+    return true;
+}
+
+double *model::fisher_predict(double *data, int size, int dim, double *coef) {
+    double *scores = NEW double[size];
+    if (!scores) return nullptr;
+
+    for (int i = 0; i < size; ++i) {
+        const double *x = data + i * dim;
+        double score = dot_dd_avx(x, coef, dim) + coef[dim];
+        scores[i] = score;
+    }
+
+    return scores;
+}
+
+svm_model* model::rbf_train(double *params, int size, int dim, 
+                 double *i_scores, double *mins, double *maxs) {
     svm_problem prob;
-    double mins[DIM_S], maxs[DIM_S];
-    for (int j = 0; j < DIM_S; ++j) {
+    for (int j = 0; j < dim; ++j) {
         mins[j] =  std::numeric_limits<double>::infinity();
         maxs[j] = -std::numeric_limits<double>::infinity();
     }
@@ -173,15 +340,16 @@ bool model::rbf_train(double *params, int size, double *p_scores, double *d_scor
     // split data into training set
     int n_pos = 0, n_neg = 0;
     std::vector<int> train_indices;
-    prob.y = new double[size];
+    prob.y = NEW double[size];
+    if (prob.y == nullptr) return nullptr;
     prob.l = 0;
     for (int i = 0; i < size; ++i) {
-        double s = p_scores[i];
-        if (s > UP_PROBA || (s < 0.01 && s > FLOAT_ZERO)) {
-            double* row = params + i*DIM_A;
+        double s = i_scores[i];
+        if (s > UP_PROBA || (s < 0.05 && s > 1E-6)) {
+            double* row = params + i*dim;
             train_indices.push_back(i);
 
-            for (int j = 0; j < DIM_S; ++j) {
+            for (int j = 0; j < dim; ++j) {
                 double v = row[j];
                 if (v < mins[j]) mins[j] = v;
                 if (v > maxs[j]) maxs[j] = v;
@@ -192,20 +360,20 @@ bool model::rbf_train(double *params, int size, double *p_scores, double *d_scor
         }
     }
 
-    if (n_pos < MIN_SET_SIZE || n_neg < MIN_SET_SIZE) return false; 
+    if (n_pos < MIN_SET_SIZE || n_neg < MIN_SET_SIZE) return nullptr; 
 
     // preprocess data (scale data to [0, 1])
-    for (int j = 0; j < DIM_S; ++j) {
+    for (int j = 0; j < dim; ++j) {
         double intv = maxs[j] - mins[j];
         if (intv == 0.0) {
             for (int i = 0; i < size; ++i)
-                params[i*DIM_A + j] = 0.0;
+                params[i*dim + j] = 0.0;
         } else {
             double inv_intv = 1.0 / intv;
             double minv = mins[j];
 
             for (int i = 0; i < size; ++i) {
-                double* row = params + i*DIM_A;
+                double* row = params + i*dim;
                 row[j] = (row[j] - minv) * inv_intv;
             }
         }
@@ -214,10 +382,10 @@ bool model::rbf_train(double *params, int size, double *p_scores, double *d_scor
     // calculate gamma
     double sum = 0.0;
     double sqsum = 0.0;
-    const int total = prob.l * DIM_S;
+    const int total = prob.l * dim;
     for (int i = 0; i < prob.l; ++i) {
-        double* row = params + train_indices[i]*DIM_A;
-        for (int j = 0; j < DIM_S; ++j) {
+        double* row = params + train_indices[i]*dim;
+        for (int j = 0; j < dim; ++j) {
             double v = row[j];
             sum += v;
             sqsum += v * v;
@@ -227,22 +395,15 @@ bool model::rbf_train(double *params, int size, double *p_scores, double *d_scor
     double mean_sq = mean * mean;
     double var = (sqsum / total) - mean_sq;
     if (var <= 0) var = FLOAT_ZERO;
-    param.gamma = 0.5 / (DIM_S * var);
+    param.gamma = 0.5 / (dim * var);
     // train svm model
-    prob.x = new double *[prob.l];
+    prob.x = NEW double *[prob.l];
+    if (prob.x == nullptr) return nullptr;
     for (int i = 0; i < prob.l; i ++)
-        prob.x[i] = params + train_indices[i]*DIM_A;
-    svm_model *model = svm_train(&prob, &param);
-    if (!model) return false;
-    // predict scores
-#ifdef _OPENMP
-    #pragma omp parallel for schedule(guided)
-#endif
-    for (int i = 0; i < size; i ++)
-        d_scores[i] = svm_predict_score(model, params + i*DIM_A);
-    svm_free_and_destroy_model(&model);
+        prob.x[i] = params + train_indices[i]*dim;
+    svm_model *model = svm_train(&prob, &param, dim);
 
     delete[] prob.x;
     delete[] prob.y;
-    return true;
+    return model;
 }
